@@ -105,7 +105,7 @@
 .route-columns {
   display: grid;
   align-items: start;
-  gap: var(--rm-space-4) var(--rm-space-6);
+  gap: var(--rm-space-3) var(--rm-space-6);
   min-width: 0;
 }
 
@@ -163,6 +163,11 @@
 
 .route-fingerprint {
   font-size: var(--rm-text-sm);
+}
+
+/* The session line carries the SSH fingerprint, which has no spaces. */
+.route-session {
+  overflow-wrap: anywhere;
 }
 
 .route-session:empty,

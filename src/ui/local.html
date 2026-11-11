@@ -75,53 +75,6 @@
       </div>
     </header>
 
-    <div
-      id="operation-progress"
-      class="operation-progress"
-      role="status"
-      aria-live="polite"
-      aria-atomic="false"
-      hidden
-    >
-      <section
-        id="install-progress"
-        class="rm-card install-progress"
-        aria-labelledby="install-progress-title"
-        tabindex="-1"
-        hidden
-      >
-        <div class="install-progress-heading">
-          <div>
-            <h2 id="install-progress-title" class="rm-h3">Operation in progress</h2>
-            <p
-              id="install-progress-phase"
-              class="rm-muted rm-small install-progress-phase operation-progress__label"
-            >No operation is running.</p>
-          </div>
-          <p class="install-progress-elapsed" aria-hidden="true">
-            <span>Elapsed</span>
-            <time id="install-elapsed" class="operation-progress__elapsed" datetime="PT0S">00:00</time>
-          </p>
-        </div>
-        <div
-          id="install-progress-bar"
-          class="rm-progress rm-progress--indeterminate install-progress-track operation-progress__track"
-          role="progressbar"
-          aria-labelledby="install-progress-title"
-          aria-describedby="install-progress-phase install-progress-duration-note"
-          aria-valuetext="No operation is running."
-        >
-          <span
-            class="rm-progress__bar install-progress-indicator operation-progress__bar"
-            aria-hidden="true"
-          ></span>
-        </div>
-        <p id="install-progress-duration-note" class="rm-field__hint install-progress-note">
-          Duration varies by operation. First Docker downloads can take several minutes. Keep this page open until it finishes.
-        </p>
-      </section>
-    </div>
-
     <main id="main-content" class="rm-app__main" tabindex="-1" aria-busy="false">
       <section id="local-dashboard" class="rm-split local-dashboard" aria-labelledby="dashboard-title">
         <aside class="rm-split__rail dashboard-rail" aria-label="Local dashboard sections and actions">
@@ -168,7 +121,7 @@
             <div class="rm-panel__body dashboard-body">
               <noscript><p class="rm-callout rm-callout--warning">This page needs JavaScript to check Docker and show your local connections. Enable JavaScript, then reload.</p></noscript>
 
-              <section id="dashboard-overview" class="dashboard-section" aria-labelledby="dashboard-overview-title">
+              <section id="dashboard-overview" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-overview-title">
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-overview-title" class="rm-h2">Local system</h2>
                   <p id="dashboard-last-checked" class="rm-muted rm-small">Checking now</p>
@@ -191,12 +144,12 @@
 
                 <dl class="dashboard-summary" aria-label="Local dashboard truth summary">
                   <div>
-                    <dt id="dashboard-runtime-health">Checking</dt>
-                    <dd>Runtime health</dd>
+                    <dt><a id="dashboard-installed" class="rm-link rm-link--standalone" href="#dashboard-connections">Checking</a></dt>
+                    <dd id="dashboard-installed-names">Connections</dd>
                   </div>
                   <div>
-                    <dt id="dashboard-provider-readiness">Checking</dt>
-                    <dd>Provider readiness</dd>
+                    <dt id="dashboard-runtime-health">Checking</dt>
+                    <dd>Runtime health</dd>
                   </div>
                   <div>
                     <dt id="dashboard-inventory-freshness">Checking</dt>
@@ -214,7 +167,7 @@
                 </div>
               </section>
 
-              <section id="dashboard-connections" class="dashboard-section" aria-labelledby="dashboard-connections-title" hidden>
+              <section id="dashboard-connections" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-connections-title" hidden>
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-connections-title" class="rm-h2">Local services</h2>
                   <p class="rm-muted rm-small">Verified actions only.</p>
@@ -260,7 +213,7 @@
                 </div>
               </section>
 
-              <section id="dashboard-n8n" class="dashboard-section" aria-labelledby="dashboard-n8n-title" hidden>
+              <section id="dashboard-n8n" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-n8n-title" hidden>
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-n8n-title" class="rm-h2">n8n services</h2>
                   <p class="rm-muted rm-small">Existing n8n stays unchanged.</p>
@@ -268,7 +221,7 @@
                 <ul id="dashboard-n8n-services" class="dashboard-compact-list" aria-label="n8n services"></ul>
               </section>
 
-              <section id="dashboard-credentials" class="dashboard-section" aria-labelledby="dashboard-credentials-title" hidden>
+              <section id="dashboard-credentials" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-credentials-title" hidden>
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-credentials-title" class="rm-h2">Credential handling</h2>
                 </div>
@@ -282,7 +235,7 @@
                 <ul id="dashboard-credential-list" class="dashboard-compact-list" aria-label="Credential status"></ul>
               </section>
 
-              <section id="dashboard-activity" class="dashboard-section" aria-labelledby="dashboard-activity-title" hidden>
+              <section id="dashboard-activity" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-activity-title" hidden>
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-activity-title" class="rm-h2">Latest inventory check</h2>
                 </div>
@@ -291,7 +244,7 @@
                 </ol>
               </section>
 
-              <section id="dashboard-usage" class="dashboard-section" aria-labelledby="dashboard-usage-title" hidden>
+              <section id="dashboard-usage" class="dashboard-section rm-fade-in" aria-labelledby="dashboard-usage-title" hidden>
                 <div class="dashboard-section-heading">
                   <h2 id="dashboard-usage-title" class="rm-h2">Plan and usage</h2>
                   <button id="dashboard-usage-refresh" class="rm-button rm-button--sm" type="button" hidden><span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Refresh usage</button>
@@ -333,6 +286,53 @@
           </nav>
         </aside>
 
+        <div
+          id="operation-progress"
+          class="operation-progress"
+          role="status"
+          aria-live="polite"
+          aria-atomic="false"
+          hidden
+        >
+          <section
+            id="install-progress"
+            class="rm-card rm-card--compact install-progress rm-fade-in"
+            aria-labelledby="install-progress-title"
+            tabindex="-1"
+            hidden
+          >
+            <div class="install-progress-heading">
+              <div>
+                <h2 id="install-progress-title" class="rm-h3">Operation in progress</h2>
+                <p
+                  id="install-progress-phase"
+                  class="rm-muted rm-small install-progress-phase operation-progress__label"
+                >No operation is running.</p>
+              </div>
+              <p class="install-progress-elapsed" aria-hidden="true">
+                <span>Elapsed</span>
+                <time id="install-elapsed" class="operation-progress__elapsed" datetime="PT0S">00:00</time>
+              </p>
+            </div>
+            <div
+              id="install-progress-bar"
+              class="rm-progress rm-progress--indeterminate install-progress-track operation-progress__track"
+              role="progressbar"
+              aria-labelledby="install-progress-title"
+              aria-describedby="install-progress-phase install-progress-duration-note"
+              aria-valuetext="No operation is running."
+            >
+              <span
+                class="rm-progress__bar install-progress-indicator operation-progress__bar"
+                aria-hidden="true"
+              ></span>
+            </div>
+            <p id="install-progress-duration-note" class="rm-field__hint install-progress-note">
+              Duration varies by operation. First Docker downloads can take several minutes. Keep this page open until it finishes.
+            </p>
+          </section>
+        </div>
+
         <div class="rm-split__content setup-workspace">
           <section class="rm-panel setup-panel" data-step="1" aria-labelledby="choose-title">
             <header class="rm-panel__header">
@@ -344,7 +344,7 @@
 
             <form id="target-form" class="setup-form">
               <div class="rm-panel__body">
-                <div id="choose-stage" class="choose-stage">
+                <div id="choose-stage" class="choose-stage rm-fade-in">
                   <fieldset class="rm-fieldset target-picker">
                     <legend class="rm-visually-hidden">Choose a connection</legend>
 
@@ -463,7 +463,7 @@
                   </div>
                 </div>
 
-                <div id="configure-stage" class="configure-stage" hidden>
+                <div id="configure-stage" class="configure-stage rm-fade-in" hidden>
                   <section id="local-siwc" class="rm-card rm-card--muted rm-card--compact siwc-controls" aria-labelledby="local-siwc-title" hidden>
                     <div class="siwc-account">
                       <label class="rm-field" for="local-siwc-account"><span id="local-siwc-title" class="rm-field__label">ChatGPT account</span>
@@ -696,7 +696,7 @@
                         <p class="rm-muted rm-small">Review checks Docker only. It creates nothing and does not open ngrok.</p>
                       </div>
                       <label class="config-block rm-check" for="n8n-stack-public-access">
-                        <input id="n8n-stack-public-access" type="checkbox" aria-controls="ngrok-checklist ngrok-hostname-field ngrok-inspector-field" />
+                        <input id="n8n-stack-public-access" type="checkbox" aria-controls="ngrok-checklist ngrok-hostname-field" />
                         <span>Public URL with ngrok (optional)<small class="rm-check__hint">New n8n is private to this computer by default. Turn on ngrok only when you need a public URL. Basic Auth protects that URL but does not make it private.</small></span>
                       </label>
                       <details id="ngrok-checklist" class="config-block rm-disclosure ngrok-checklist" hidden>
@@ -721,11 +721,6 @@
                           <input id="n8n-stack-port" class="rm-input" type="number" min="1024" max="65535" value="5679" aria-describedby="n8n-stack-port-help" required />
                           <small id="n8n-stack-port-help" class="rm-field__hint">Bound only to <code>127.0.0.1</code>; avoids n8n’s usual 5678.</small>
                         </label>
-                        <label id="ngrok-inspector-field" class="rm-field" for="ngrok-inspector-port" hidden>
-                          <span class="rm-field__label">Loopback inspector port</span>
-                          <input id="ngrok-inspector-port" class="rm-input" type="number" min="1024" max="65535" value="4041" aria-describedby="ngrok-inspector-port-help" required />
-                          <small id="ngrok-inspector-port-help" class="rm-field__hint">ngrok inspector, loopback only.</small>
-                        </label>
                         <label class="rm-field" for="n8n-stack-timezone">
                           <span class="rm-field__label">Canonical timezone</span>
                           <input id="n8n-stack-timezone" class="rm-input" type="text" autocomplete="off" value="Asia/Manila" required />
@@ -748,7 +743,6 @@
                         <input id="claude-models" class="rm-input rm-input--mono" value="claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5" maxlength="1032" aria-describedby="claude-models-help" />
                         <small id="claude-models-help" class="rm-field__hint">1 to 8 exact IDs, separated by commas. No Fable. Docker only; for native n8n, use the <a class="rm-link" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude CLI guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</small>
                       </label>
-                      <p class="rm-small">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
                     </section>
 
                     <aside id="supergrok-n8n-reminder" class="rm-callout supergrok-n8n-reminder" hidden aria-live="polite">
@@ -782,14 +776,28 @@
           <section class="rm-panel setup-panel" data-step="2" aria-labelledby="review-title" hidden>
             <header class="rm-panel__header">
               <div class="rm-panel__heading">
-                <p class="rm-eyebrow">Step 2 of 4 · Review</p>
+                <p id="review-step-caption" class="rm-eyebrow">Step 2 of 4 · Review</p>
                 <h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2>
-                <p class="rm-muted">Nothing has changed yet. Check this plan, then confirm.</p>
+                <p id="review-detail" class="rm-muted">Nothing has changed yet. Check this plan, then confirm.</p>
               </div>
             </header>
 
             <div class="rm-panel__body">
-              <div class="panel-columns review-columns">
+              <div id="claude-review" class="claude-review rm-fade-in" hidden>
+                <dl class="rm-dl result-list">
+                  <div><dt>Claude Code</dt><dd id="claude-review-version"></dd></div>
+                  <div><dt>SHA-256</dt><dd><code id="claude-review-sha"></code></dd></div>
+                </dl>
+                <div class="claude-review__checks">
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="officialBinaryReviewed" /><span>I checked the official Claude Code version and SHA256 for this architecture.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="effectivePolicyReviewed" /><span>I reviewed the companion's effective policy, managed settings, hooks and MCP servers. None adds tools, commands or changes to sign-in or models.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="nativeAuthAndBillingReviewed" /><span>I will sign in to my own Claude plan, keep extra usage off and check for loggedIn true and authMethod claude.ai before use.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="policyChangesControlled" /><span>I will keep policy, login and billing unchanged and renew approval after changes or within 7 days.</span></label>
+                </div>
+                <a class="rm-link rm-link--standalone" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude setup and review guide<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+              </div>
+
+              <div id="review-plan" class="panel-columns review-columns rm-fade-in">
                 <p id="review-provider-context" class="rm-eyebrow local-provider-context"></p>
 
                 <dl class="rm-dl result-list review-details">
@@ -857,6 +865,18 @@
                     <dt>Managed files</dt>
                     <dd><code id="review-path"></code></dd>
                   </div>
+                  <div id="review-claude-models-row" hidden>
+                    <dt>Models</dt>
+                    <dd id="review-claude-models"></dd>
+                  </div>
+                  <div id="review-claude-version-row" hidden>
+                    <dt>Claude Code</dt>
+                    <dd id="review-claude-version"></dd>
+                  </div>
+                  <div id="review-claude-sha-row" hidden>
+                    <dt>SHA-256</dt>
+                    <dd><code id="review-claude-sha"></code></dd>
+                  </div>
                 </dl>
                 <p id="review-siwc-usage" class="rm-status" data-tone="success" hidden>Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage (opens in a new tab)</a></p>
 
@@ -917,15 +937,17 @@
                   </details>
                 </div>
 
-                <section id="claude-review" hidden aria-labelledby="claude-review-title">
-                  <h3 id="claude-review-title" class="rm-h3">Claude approval</h3>
-                  <p id="claude-review-models" class="rm-small"></p>
-                  <p id="claude-review-binary" class="rm-small rm-break"></p>
-                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="officialBinaryReviewed" /><span>I checked the official Claude Code version and SHA256 for this architecture.</span></label>
-                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="effectivePolicyReviewed" /><span>I reviewed the companion's effective policy, managed settings, hooks and MCP servers. None adds tools, commands or changes to sign-in or models.</span></label>
-                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="nativeAuthAndBillingReviewed" /><span>I will sign in to my own Claude plan, keep extra usage off and check for loggedIn true and authMethod claude.ai before use.</span></label>
-                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="policyChangesControlled" /><span>I will keep policy, login and billing unchanged and renew approval after changes or within 7 days.</span></label>
-                </section>
+                <details id="claude-review-settings" class="rm-notice" hidden>
+                  <summary>
+                    <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
+                    <span class="rm-notice__title">Text only, one request at a time</span>
+                    <span class="rm-notice__text">Not AI Agent tools or the n8n AI Assistant.</span>
+                    <span class="rm-notice__toggle">n8n settings</span>
+                  </summary>
+                  <div class="rm-notice__body">
+                    <p>Basic LLM Chain + OpenAI Chat Model; Use Responses API off; Max Retries 0; Timeout at least 135000 ms; Batch Size 1. Renew approval within 7 days.</p>
+                  </div>
+                </details>
 
                 <aside id="review-policy" class="policy-note"></aside>
               </div>
@@ -935,7 +957,7 @@
               <button class="rm-button rm-button--ghost back-button" type="button" data-back="1">
                 <span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back
               </button>
-              <div class="approval">
+              <div id="review-approval" class="approval">
                 <label class="rm-check check-row">
                   <input id="install-confirm" type="checkbox" />
                   <span id="install-confirm-copy">I reviewed this exact plan and authorize Relmio to write its managed local files and start this container.</span>
@@ -949,6 +971,9 @@
                   <span>I approve replacing only this signed-out owned Relmio service with a separately authorized account. Keep the old signed-out mapping and history offline; I will update my client with the new one-time key.</span>
                 </label>
               </div>
+              <button id="claude-review-continue" class="rm-button rm-button--primary rm-push" type="button" disabled hidden>
+                Review the plan
+              </button>
               <button id="install-settings-button" class="rm-button rm-button--primary" type="button" disabled>
                 Continue to install
               </button>
@@ -1027,6 +1052,9 @@
                 <input id="local-background-consent" type="checkbox" />
                 <span>I authorize this selected ChatGPT account's plan for my own background workflows on this reviewed n8n. Other people's activity must not use my plan. For n8n created by Relmio, the reviewed install may save its local key and base URL in n8n's credential store. OpenAI tokens stay in the sidecar.</span>
               </label>
+              <button id="install-review-again" class="rm-button rm-button--primary rm-push" type="button" hidden>
+                Review the plan again
+              </button>
               <button id="install-button" class="rm-button rm-button--primary rm-push" type="button">
                 Install on this computer
               </button>
@@ -1489,16 +1517,31 @@
                 </section>
                 </details>
 
-                <section id="n8n-claude-management" class="rm-card rm-card--compact" hidden aria-labelledby="claude-management-title">
-                  <h3 id="claude-management-title" class="rm-h3">Claude for n8n <span class="rm-badge rm-badge--accent">Experimental</span></h3>
-                  <p class="rm-small">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
-                  <div id="claude-one-time-key" hidden><p class="rm-small">Save this Relmio key now. It is shown once and cannot be recovered.</p><div class="result-value"><code id="claude-client-key"></code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-client-key" data-copy-label="Claude client key">Copy key</button></div></div>
-                  <p class="rm-small">Sign in in your own terminal. This browser never asks for the paste code:</p>
-                  <div class="result-value"><code id="claude-login-command">relmio claude companion login</code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-login-command" data-copy-label="Claude sign-in command">Copy command</button></div>
-                  <button id="claude-check-sign-in" class="rm-button rm-button--sm" type="button">Check sign-in</button>
-                  <p id="claude-auth-status" class="rm-small" role="status">Sign-in has not been checked.</p>
-                  <p id="claude-approval-status" class="rm-small" role="status"></p>
-                  <details class="rm-disclosure"><summary>n8n settings and approval management</summary><div class="rm-disclosure__body">
+                <div id="n8n-claude-management" class="claude-view" hidden>
+                  <section id="claude-card" class="rm-card rm-card--compact claude-card" aria-labelledby="claude-management-title">
+                    <h3 id="claude-management-title" class="rm-h3">Claude for n8n <span class="rm-badge rm-badge--accent">Experimental</span></h3>
+                    <div id="claude-one-time-key" class="rm-callout rm-callout--warning" hidden>
+                      <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
+                      <div class="rm-callout__content">
+                        <strong class="rm-callout__title">Save this Relmio key now</strong>
+                        <p class="rm-callout__body">It is shown once and cannot be recovered.</p>
+                        <div class="result-value"><code id="claude-client-key"></code><button id="claude-copy-key" class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-client-key" data-copy-label="Claude client key" data-guide-state="none">Copy key</button></div>
+                      </div>
+                    </div>
+                    <p id="claude-runtime-status" class="rm-status" role="status" data-tone="success" data-guide-state="running"><span class="rm-status__dot" aria-hidden="true"></span><span id="claude-runtime-text"></span></p>
+                    <p id="claude-runtime-help" class="rm-small" hidden>Check its logs with <code>docker logs relmio-claude</code>. If they show <code>account_locked</code>, follow the <a class="rm-link" href="https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md#shutdown-and-account-lock-recovery" target="_blank" rel="noopener noreferrer">account-lock recovery guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a> only after everything that uses this Claude account has stopped.</p>
+                    <p class="rm-small">Sign in in your own terminal. This browser never asks for the paste code.</p>
+                    <div class="rm-terminal">
+                      <div class="rm-terminal__bar"><span>Your terminal</span><div class="rm-terminal__actions"><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-login-command" data-copy-label="Claude sign-in command">Copy command</button></div></div>
+                      <pre class="rm-terminal__body" tabindex="0" role="region" aria-label="Claude terminal sign-in command"><code id="claude-login-command">relmio claude companion login</code></pre>
+                    </div>
+                    <div class="claude-card__check">
+                      <button id="claude-check-sign-in" class="rm-button rm-button--sm" type="button">Check sign-in</button>
+                      <p id="claude-auth-status" class="rm-small" role="status" data-guide-state="unchecked">Sign-in has not been checked.</p>
+                    </div>
+                    <p id="claude-approval-status" class="rm-small" role="status"></p>
+                  </section>
+                  <details id="claude-manage" class="rm-disclosure"><summary>n8n settings and approval</summary><div class="rm-disclosure__body">
                     <p class="rm-small">If you use NPX instead of an installed Relmio command, sign in with:</p>
                     <div class="result-value"><code id="claude-npx-login-command">npx --yes --ignore-scripts relmio@latest claude companion login</code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-npx-login-command" data-copy-label="NPX Claude sign-in command">Copy NPX command</button></div>
                     <p class="rm-small">OpenAI credential: Base URL <code>http://relmio-claude:14502/v1</code>; API Key: the one-time Relmio key. Use Basic LLM Chain + OpenAI Chat Model. Turn Use Responses API off. Max Retries 0, Timeout at least 135000 ms, Batch Size 1. Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant.</p>
@@ -1514,10 +1557,16 @@
                       <label class="rm-check check-row"><input type="checkbox" data-claude-renew="nativeAuthAndBillingReviewed" /><span>My own plan and allowed models remain selected, auth status is claude.ai, and extra usage is off.</span></label>
                       <label class="rm-check check-row"><input type="checkbox" data-claude-renew="policyChangesControlled" /><span>I will keep policy, login and billing unchanged and renew within 7 days.</span></label>
                     </div>
-                    <label class="rm-check check-row"><input id="claude-change-confirm" type="checkbox" /><span>I confirm the action I choose below. Removal deletes only Relmio's Claude companion, login volume and managed files. n8n and its network stay.</span></label>
-                    <div class="rm-cluster"><button id="claude-renew" class="rm-button rm-button--sm" type="button" disabled>Renew approval</button><button id="claude-sign-out" class="rm-button rm-button--sm" type="button" disabled>Sign out</button><button id="claude-remove" class="rm-button rm-button--danger rm-button--sm" type="button" disabled>Remove Claude</button></div>
+                    <label class="rm-check check-row"><input id="claude-change-confirm" type="checkbox" /><span>I confirm the action I choose below. It changes only Relmio's Claude companion and does not restart n8n.</span></label>
+                    <div class="rm-cluster"><button id="claude-renew" class="rm-button rm-button--sm" type="button" disabled>Renew approval</button><button id="claude-sign-out" class="rm-button rm-button--sm" type="button" disabled>Sign out</button></div>
                   </div></details>
-                </section>
+                  <details id="claude-removal" class="rm-disclosure"><summary>Remove Claude for n8n</summary><div class="rm-disclosure__body">
+                    <p class="rm-small">Removes only Relmio's Claude companion, its image and managed files, and the Claude login volume unless you keep it below. n8n and its Docker network stay.</p>
+                    <label class="rm-check check-row"><input id="claude-keep-login" type="checkbox" /><span>Keep my Claude sign-in for a reinstall<small class="rm-check__hint">Removal leaves the login volume in Docker for the next install. Everything in it stays, including an account lock left by a crash.</small></span></label>
+                    <label class="rm-check check-row"><input id="claude-remove-confirm" type="checkbox" /><span id="claude-remove-confirm-copy">I authorize Relmio to remove only its Claude companion, login volume and managed files. Leave n8n and its Docker network unchanged.</span></label>
+                    <div class="rm-cluster"><button id="claude-remove" class="rm-button rm-button--danger" type="button" disabled>Remove Claude</button></div>
+                  </div></details>
+                </div>
 
                 <details class="rm-disclosure ready-optional">
                   <summary>Remove SuperGrok for n8n</summary>
@@ -1614,7 +1663,7 @@
               </div>
             </div>
             <div id="global-message" class="global-message" role="status" aria-live="polite">
-              <span id="global-message-text">Checking local Docker…</span>
+              <span id="global-message-text"></span>
             </div>
           </div>
 
@@ -1630,6 +1679,7 @@
           </div>
 
           <div class="setup-safety">
+            <p id="local-footer-claude" class="setup-safety__fact setup-safety__fact--warning" hidden><span class="rm-icon rm-icon--alert rm-icon--sm" aria-hidden="true"></span><span>Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</span></p>
             <p id="local-footer-provider" class="setup-safety__fact"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>Provider sign-in stays in its runtime. A local key is separate and is not a Platform API key.</span></p>
             <p id="local-footer-chatgpt" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>A selected SIWC registration transfers only after final approval. The sidecar owns refresh; a separate one-time Relmio key protects local clients.</span></p>
             <p id="local-footer-model" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>This model uses no provider sign-in or API key. Other containers on its Docker network can still reach the model API.</span></p>

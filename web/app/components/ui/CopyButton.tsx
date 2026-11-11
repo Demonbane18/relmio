@@ -12,7 +12,8 @@ type CopyButtonProps = {
 };
 
 /** Icon button that copies text and announces the result politely without
-    moving focus. */
+    moving focus. For two seconds after a copy it carries data-copied, which
+    the kit shows as a check in the success colour. */
 export function CopyButton({ targetId, label, className }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -43,8 +44,9 @@ export function CopyButton({ targetId, label, className }: CopyButtonProps) {
         onClick={copy}
         aria-label={`Copy ${label}`}
         title={`Copy ${label}`}
+        data-copied={copied ? "" : undefined}
       >
-        <Icon name={copied ? "check" : "copy"} size="sm" />
+        <Icon name="copy" size="sm" />
       </button>
       <span className="rm-visually-hidden" role="status" aria-live="polite">
         {announcement}

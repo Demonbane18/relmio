@@ -39,7 +39,12 @@ async function harness(apiResult, { install = false } = {}) {
   };
   const timers = [];
   const window = {
-    setTimeout(callback, delay) { timers.push({ callback, delay, cleared: false }); return timers.length; },
+    // Like a real timer, one that has fired is no longer pending.
+    setTimeout(callback, delay) {
+      const timer = { delay, cleared: false, callback() { timer.cleared = true; return callback(); } };
+      timers.push(timer);
+      return timers.length;
+    },
     clearTimeout(handle) { if (timers[handle - 1]) timers[handle - 1].cleared = true; },
   };
   const calls = [];

@@ -1,10 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { markdownSections } from "../app/docs/markdownText.ts";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(webRoot, "..");
 const outputPath = resolve(webRoot, "app/docs/generated-content.ts");
+// The docs search loads this index on first use, so it stays out of the pages.
+const sectionsPath = resolve(webRoot, "app/docs/generated-sections.json");
 
 const pages = [
   {
@@ -68,6 +71,10 @@ const pages = [
     slug: "troubleshooting",
     title: "Troubleshooting",
     sourcePath: "docs/troubleshooting.md",
+    // Index card text and meta description when the first paragraph does not
+    // suit a newcomer. Plain text, at most about 160 characters.
+    summary:
+      "How to fix common problems: Docker not running, failed sign-ins, image build errors, VPS checks and model errors. A symptom table lists more.",
   },
   {
     slug: "faq",
@@ -78,6 +85,8 @@ const pages = [
     slug: "security",
     title: "Security",
     sourcePath: "docs/security.md",
+    summary:
+      "How Relmio stores and separates provider sign-ins and tokens, what the wizard changes on your computer or server, and its known limits.",
   },
   {
     slug: "reference",
@@ -124,6 +133,14 @@ export const documentationBySlug: ReadonlyMap<string, (typeof documentationPages
 `;
 }
 
+/** One section per line, so a docs edit shows as a small diff. */
+function renderSectionIndex(entries) {
+  const sections = entries.flatMap((page) =>
+    markdownSections(page.content).map((section) => JSON.stringify({ slug: page.slug, ...section })),
+  );
+  return `[\n${sections.join(",\n")}\n]\n`;
+}
+
 async function generate() {
   const [entries, changelogContent] = await Promise.all([
     Promise.all(
@@ -140,24 +157,31 @@ async function generate() {
       normalizeLineEndings,
     ),
   ]);
-  return renderGeneratedModule(entries, changelogContent);
+  return new Map([
+    [outputPath, renderGeneratedModule(entries, changelogContent)],
+    [sectionsPath, renderSectionIndex(entries)],
+  ]);
 }
 
-const output = await generate();
+const outputs = await generate();
 if (process.argv.includes("--check")) {
-  let checkedIn = "";
-  try {
-    checkedIn = await readFile(outputPath, "utf8");
-  } catch {
-    // The comparison below reports the same clear generated-output drift.
+  for (const [path, output] of outputs) {
+    let checkedIn = "";
+    try {
+      checkedIn = await readFile(path, "utf8");
+    } catch {
+      // The comparison below reports the same clear generated-output drift.
+    }
+    if (normalizeLineEndings(checkedIn) !== output) {
+      process.exitCode = 1;
+    }
   }
-  if (normalizeLineEndings(checkedIn) !== output) {
+  if (process.exitCode === 1) {
     process.stderr.write(
       "Generated documentation is out of date. Run npm run docs:generate.\n",
     );
-    process.exitCode = 1;
   }
 } else {
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, output, "utf8");
+  await Promise.all([...outputs].map(([path, output]) => writeFile(path, output, "utf8")));
 }

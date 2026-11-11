@@ -12,7 +12,7 @@ import {
   validateUsername,
 } from "../domain/validation.js";
 import {
-  ADMIN_PROBE, LOGIN_PROBE, MAX_UPLOAD_BYTES, administrativeCommand,
+  ADMIN_PROBE, LOGIN_PROBE, MAX_UPLOAD_BYTES, administrativeCommand, describeAdministrativeHost,
   parseAdministrativeProbe, parseLoginUid, modelUploadCommand, quoteShell, validateModelUpload,
 } from "./ssh-administration.js";
 
@@ -209,7 +209,10 @@ class SshConnection {
         }),
       ]);
     } catch (error) {
-      if (error?.timedOut === true) throw new Error("The read-only VPS administrative probes timed out. No remote files were written.");
+      if (error?.timedOut === true) throw Object.assign(
+        new Error("The read-only VPS administrative probes timed out. No remote files were written."),
+        { code: "vps_prereq_probe" });
+      error.code ??= "vps_prereq_probe";
       throw error;
     } finally { clearTimeout(timer); }
   }
@@ -218,12 +221,10 @@ class SshConnection {
     const remaining = () => Math.max(1, expiresAt - Date.now());
     const loginUid = parseLoginUid(await this.#run(LOGIN_PROBE, undefined, remaining()));
     if (options.privilege === "root" && loginUid !== 0) {
-      throw new Error("Root administration requires an actual UID 0 login. Select passwordless sudo for the model-only flow.");
+      throw Object.assign(new Error("This account is not the root user, so the root sign-in was refused. Sign in as root, or use the self-hosted model setup, which also accepts passwordless sudo. No remote files were written."), { code: "ssh_not_root" });
     }
-    this.#engine = parseAdministrativeProbe(await this.#run(
-      administrativeCommand(ADMIN_PROBE, this.#privilege),
-      undefined, remaining(),
-    ));
+    const probe = await this.#run(administrativeCommand(ADMIN_PROBE, this.#privilege), undefined, remaining());
+    this.#engine = parseAdministrativeProbe(probe);
     Object.defineProperties(this, {
       identity: { enumerable: true, value: Object.freeze({
         host: config.host, port: config.port, fingerprint: options.expectedFingerprint,
@@ -231,6 +232,7 @@ class SshConnection {
         privilege: options.privilege, loginUid, effectiveUid: 0,
       }) },
       scope: { enumerable: true, value: options.privilege === "root" ? "vps" : "local-model-only" },
+      host: { enumerable: true, value: describeAdministrativeHost(probe) },
     });
     return this;
   }
@@ -520,19 +522,32 @@ export async function connectVerified(
   }
   const config = buildVerifiedConnectionConfig(options, { agent: agent ?? undefined });
   const client = createClient();
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    const fail = () => {
-      if (settled) return;
-      settled = true;
-      client.end();
-      reject(new Error("SSH connection failed. Check the address, selected authentication, firewall, and confirmed fingerprint."));
-    };
-    client.once("ready", () => { if (!settled) { settled = true; resolve(); } });
-    client.on("error", fail);
-    client.once("close", fail);
-    try { client.connect(config); } catch { fail(); }
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        client.end();
+        // ssh2 marks a sign-in the server refused; its own text is never shown.
+        reject(error?.level === "client-authentication"
+          ? Object.assign(new Error(needsAgent
+            ? "The server refused every key in your SSH agent for this username. Check the username, add the right key with ssh-add, then try again."
+            : "The server refused this username and password. Check both. Many cloud servers turn off password or root sign-in; there, choose the SSH agent option and sign in with your key."),
+          { code: "ssh_auth_refused" })
+          : new Error("SSH connection failed. Check the address, selected authentication, firewall, and confirmed fingerprint."));
+      };
+      client.once("ready", () => { if (!settled) { settled = true; resolve(); } });
+      client.on("error", fail);
+      client.once("close", () => fail());
+      try { client.connect(config); } catch { fail(); }
+    });
+  } finally {
+    // ssh2 reads the password only during the authentication exchange and
+    // nothing here reconnects, so neither object keeps it for the session.
+    delete config.password;
+    if (client.config && typeof client.config === "object") delete client.config.password;
+  }
   const remote = new SshConnection(client, options.privilege);
   try { return await remote.prepare(options, config, prepareTimeoutMs); }
   catch (error) { remote.close(); throw error; }

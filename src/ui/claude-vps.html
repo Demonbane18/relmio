@@ -96,7 +96,7 @@
               <div class="rm-panel__heading">
                 <span class="rm-eyebrow">Step 1 of 4</span>
                 <h2 id="ssh-title" class="rm-h1" tabindex="-1">Check your server</h2>
-                <p class="rm-muted">Confirm the server identity before you sign in. The password clears after each attempt.</p>
+                <p class="rm-muted">Check the server identity before you connect to the server.</p>
               </div>
             </header>
             <form id="ssh-form" class="route-form">
@@ -104,33 +104,36 @@
                 <div class="route-columns route-columns--form">
                   <div class="route-main">
                     <div class="route-target">
-                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
-                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
-                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" inputmode="url" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">Connection port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
+                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check this server</button>
                     </div>
-                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
+                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" aria-describedby="fingerprint-hint" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span><span id="fingerprint-hint" class="rm-check__hint">Compare this fingerprint with a trusted record for your server before you approve it.</span></span></label>
                     <div class="rm-form-grid route-signin">
-                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
+                      <label class="rm-field"><span class="rm-field__label">Sign-in name</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
                       <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after you confirm the server identity.</span></label>
+                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after the identity check. Clears after you connect.</span></label>
                     </div>
                   </div>
                   <div class="route-aside">
                     <p class="rm-small rm-muted">Claude on a VPS is experimental. Use your own Claude Pro or Max plan.</p>
-                    <p class="rm-small rm-muted">Passwordless sudo works only on the Local model page.</p>
                     <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
-                    <details class="rm-disclosure">
-                      <summary>About SSH agent sign-in</summary>
-                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases or forwarded agent are sent to the server.</p></div>
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact">
+                      <summary>More details about SSH sign-in</summary>
+                      <div class="rm-disclosure__body">
+                        <p>Passwordless sudo works only on the local model page.</p>
+                        <p>For agent sign-in, load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
+                      </div>
                     </details>
                     <p id="ssh-session" class="rm-small route-session" role="status"></p>
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
                   </div>
                 </div>
               </div>
               <footer class="rm-panel__footer">
                 <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
-                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
-                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect n8n<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect from VPS</button>
+                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
               </footer>
             </form>
           </section>
@@ -141,14 +144,16 @@
                 <label class="rm-field"><span class="rm-field__label">Running n8n container</span><select id="container" class="rm-select"></select></label>
                 <label class="rm-field"><span class="rm-field__label">Shared private Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">The companion joins this network. n8n does not change.</span></label>
               </div>
+              <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
               <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status"></p>
+              <a class="rm-link rm-link--standalone rm-small" data-runtime-help hidden href="https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md#shutdown-and-account-lock-recovery" target="_blank" rel="noopener noreferrer">Account-lock recovery guide<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
             </div>
             <footer class="rm-panel__footer">
-              <button id="disconnect-button" class="rm-button rm-button--ghost" type="button">Disconnect</button>
+              <button id="disconnect-button" class="rm-button rm-button--ghost" type="button">Disconnect from VPS</button>
               <button id="refresh-button" class="rm-button" type="button">Refresh status</button>
               <div class="rm-cluster rm-push">
                 <button class="rm-button rm-button--primary" data-action="install" type="button" hidden>Review installation</button>
-                <button class="rm-button rm-button--primary" data-action="replace" type="button" hidden>Review replacement</button>
+                <button id="selection-replace" class="rm-button rm-button--primary" data-action="replace" type="button" hidden>Review replacement</button>
                 <button id="selection-continue" class="rm-button rm-button--primary" type="button" hidden>Continue</button>
               </div>
             </footer>
@@ -168,7 +173,7 @@
                 <label class="rm-check"><input type="checkbox" data-review="nativeAuthAndBillingReviewed" /><span>I will sign in myself with my Claude Pro or Max plan, with extra usage off. I reviewed native sign-in and billing.</span></label>
                 <label class="rm-check"><input type="checkbox" data-review="policyChangesControlled" /><span>I will keep the reviewed runtime and policy unchanged, and review again before approval expires within 7 days.</span></label>
               </div>
-              <p class="rm-small"><a class="rm-link" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude setup and review guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
+              <p class="rm-small"><a class="rm-link rm-link--standalone" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude setup and review guide<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
             </div>
             <footer class="rm-panel__footer"><button id="cancel-approval" class="rm-button rm-button--ghost" type="button">Back</button><button id="prepare-button" class="rm-button rm-button--primary rm-push" type="button" disabled>Review final plan</button></footer>
           </section>
@@ -192,8 +197,9 @@
           <section id="settings-panel" class="rm-panel route-panel" aria-labelledby="settings-title" hidden>
             <header class="rm-panel__header"><div class="rm-panel__heading"><span class="rm-eyebrow">Step 4 of 4</span><h2 id="settings-title" class="rm-h1" tabindex="-1">Sign in and connect n8n</h2><p class="rm-muted">Run this command in your own terminal. Complete Claude sign-in there.</p></div></header>
             <div class="rm-panel__body">
-              <div class="rm-terminal"><div class="rm-terminal__bar"><span>Your terminal</span><button id="copy-login" class="rm-button rm-button--sm" type="button">Copy command</button></div><pre class="rm-terminal__body" tabindex="0" role="region" aria-label="Claude terminal sign-in command"><code id="login-command"></code></pre></div>
-              <div class="claude-status-row"><p id="login-state" class="rm-small" role="status">Sign-in has not been checked.</p><p id="approval-expiry" class="rm-small" role="status"></p></div>
+              <div class="rm-terminal"><div class="rm-terminal__bar"><span>Your terminal</span><button id="copy-login" class="rm-button rm-button--sm" type="button"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span>Copy command</button></div><pre class="rm-terminal__body" tabindex="0" role="region" aria-label="Claude terminal sign-in command"><code id="login-command"></code></pre></div>
+              <div class="claude-status-row"><p id="login-state" class="rm-small" role="status" data-guide-state="unchecked">Sign-in has not been checked.</p><p id="approval-expiry" class="rm-small" role="status"></p></div>
+              <a class="rm-link rm-link--standalone rm-small" data-runtime-help hidden href="https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md#shutdown-and-account-lock-recovery" target="_blank" rel="noopener noreferrer">Account-lock recovery guide<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
               <div class="route-columns">
                 <div class="route-main">
                   <div class="rm-field"><label class="rm-field__label" for="client-key">n8n API key</label><div class="route-secret"><input id="client-key" class="rm-input rm-input--mono" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help" /><button id="copy-key" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy n8n API key"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button></div><span id="key-help" class="rm-field__hint">Shown once after install or replacement. Save it in n8n, or enter your saved key to check models. This is not a Claude login.</span></div>

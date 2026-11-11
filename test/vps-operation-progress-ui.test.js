@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
+import { whenVisible } from "../src/ui/session.js";
 
 const WIZARDS = [
   { allowOAuth: true, busyId: "setup-steps", html: "src/ui/index.html", script: "src/ui/app.js" },
@@ -772,7 +773,7 @@ test("reviewed plan IDs stay opaque, gate installation, and invalidate on edits"
     const script = await readFile(wizard.script, "utf8");
     const start = script.indexOf("function validatePlanId(value)");
     const endMarker = wizard.allowOAuth
-      ? "\nconst revertTimers"
+      ? "\nasync function copyText("
       : "\nconst OPERATION_INTERACTIVE_SELECTOR";
     const end = script.indexOf(endMarker, start);
     assert.ok(start >= 0 && end > start, `missing plan helpers in ${wizard.script}`);
@@ -834,4 +835,64 @@ test("Assistant Back from Review withdraws the plan and its approval", async () 
   assert.equal(state.reviewedIncludeSearxng, null);
   assert.equal(confirm.checked, false);
   assert.equal(install.disabled, true);
+});
+
+test("model download polling waits for visibility and exposes byte-count progress", async () => {
+  const source = await readFile("src/ui/local-model-vps.js", "utf8");
+  const start = source.indexOf("function showDownloadProgress(");
+  const end = source.indexOf('\nel("scan").addEventListener', start);
+  assert.ok(start >= 0 && end > start);
+  const listeners = new Set();
+  const page = {
+    hidden: true,
+    addEventListener(_name, fn) { listeners.add(fn); },
+    removeEventListener(_name, fn) { listeners.delete(fn); },
+    show() { this.hidden = false; for (const fn of [...listeners]) fn(); },
+  };
+  const nodes = new Map();
+  const el = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      hidden: true, textContent: "", attributes: new Map(),
+      classList: { toggle(_name, value) { this.indeterminate = value; } },
+      firstElementChild: { style: { values: new Map(), setProperty(key, value) { this.values.set(key, value); } } },
+      setAttribute(key, value) { this.attributes.set(key, value); },
+      removeAttribute(key) { this.attributes.delete(key); },
+      scrollIntoView() {},
+    });
+    return nodes.get(id);
+  };
+  let due;
+  let requests = 0;
+  const state = { busy: false, generation: 1, status: { installId: "fixture" } };
+  const { schedulePoll, showDownloadProgress } = runInNewContext(`${source.slice(start, end)}; ({ schedulePoll, showDownloadProgress });`, {
+    state, el, MODELS: new Set(["qwen3:0.6b"]),
+    boundary: () => ({ containerName: "n8n", networkName: "proxy" }),
+    current: (_key, generation) => generation === state.generation,
+    connectedIdentityMatches: () => true,
+    clearTimeout() {}, setTimeout(fn) { due = fn; return 1; },
+    whenVisible: tick => whenVisible(tick, page),
+    formatBytes: value => `${value} bytes`,
+    error: failure => assert.fail(failure?.message ?? failure),
+    api: async () => {
+      requests++;
+      return { installId: "fixture", modelId: "qwen3:0.6b", state: "downloading",
+        operation: { state: "downloading", phase: "Model layers", completedBytes: 500, totalBytes: 1000 } };
+    },
+  });
+  schedulePoll();
+  due();
+  assert.equal(requests, 0);
+  page.show();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 1);
+  assert.equal(el("progress").hidden, false);
+  assert.equal(el("progress-bar").attributes.get("aria-valuenow"), "50");
+  assert.equal(el("progress-bar").firstElementChild.style.values.get("--rm-progress"), "0.5");
+  page.show();
+  assert.equal(requests, 1, "the visibility listener is removed after one tick");
+  showDownloadProgress(150, 100);
+  assert.equal(el("progress-bar").attributes.get("aria-valuenow"), "100");
+  showDownloadProgress(500, null);
+  assert.equal(el("progress-bar").attributes.has("aria-valuenow"), false);
+  assert.equal(el("progress-bar").classList.indeterminate, true);
 });

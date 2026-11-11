@@ -14,8 +14,8 @@ import {
   getSshCapabilities, resolveSshAgent, scanHostFingerprint,
 } from "../src/infrastructure/ssh.js";
 import {
-  ADMIN_PROBE, BUILDER_STATE_PROBE, LOGIN_PROBE, administrativeCommand, parseAdministrativeProbe,
-  parseLoginUid, quoteShell, validateModelUpload,
+  ADMIN_PROBE, BUILDER_STATE_PROBE, LOGIN_PROBE, administrativeCommand, describeAdministrativeHost,
+  parseAdministrativeProbe, parseLoginUid, quoteShell, validateModelUpload,
 } from "../src/infrastructure/ssh-administration.js";
 import { withVpsOperationLock } from "../src/services/vps-operation-lock.js";
 import { VPS_OPERATION_LOCKS } from "../src/domain/vps-build-state.js";
@@ -33,7 +33,24 @@ const posixShell = process.platform === "win32"
 const posixExecutionSkip = posixShell
   ? false
   : "Remote VPS command is a POSIX /bin/sh script; native Windows has no /bin/sh unless RELMIO_TEST_POSIX_SHELL is set.";
-const adminResult = (info = {}) => ({ code: 0, stdout: `0\nunix:///var/run/docker.sock\n/usr/bin/docker\ndefault\n${JSON.stringify({ OSType: "linux", ServerVersion: "28.0.1", SecurityOptions: ["name=seccomp,profile=builtin"], ...info })}\n2.39.2\ndefault\n`, stderr: "" });
+const adminResult = (info = {}, compose = "2.39.2") => ({ code: 0, stdout: `0\nunix:///var/run/docker.sock\n/usr/bin/docker\ndefault\n${JSON.stringify({ OSType: "linux", ServerVersion: "28.0.1", SecurityOptions: ["name=seccomp,profile=builtin"], ...info })}\n${compose}\ndefault\n`, stderr: "" });
+// Fields copied from a sanitized `docker info --format '{{json .}}'` capture:
+// Docker 29.5.2 on Ubuntu 24.04.4 LTS, aarch64, with Compose 5.6.1. The plugin
+// paths are written as a Linux host reports them.
+const capturedInfo = {
+  OSType: "linux", OperatingSystem: "Ubuntu 24.04.4 LTS", OSVersion: "24.04", KernelVersion: "6.8.0-117-generic",
+  Architecture: "aarch64", ServerVersion: "29.5.2", NCPU: 2, MemTotal: 4095635456,
+  SecurityOptions: ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"],
+  ClientInfo: { Debug: false, Context: "default", Plugins: [
+    { SchemaVersion: "0.1.0", Vendor: "Docker Inc.", Version: "v0.38.1", ShortDescription: "Docker Buildx", Name: "buildx", Path: "/usr/libexec/docker/cli-plugins/docker-buildx" },
+    { SchemaVersion: "0.1.0", Vendor: "Docker Inc.", Version: "5.6.1", ShortDescription: "Docker Compose", Name: "compose", Path: "/usr/libexec/docker/cli-plugins/docker-compose" },
+  ], Warnings: null },
+};
+const capturedHost = {
+  os: "Ubuntu 24.04.4 LTS", kernel: "6.8.0-117-generic", arch: "aarch64", dockerVersion: "29.5.2",
+  composeVersion: "5.6.1", buildxVersion: "0.38.1", memoryBytes: 4095635456, cpus: 2,
+  security: ["apparmor", "seccomp", "cgroupns"],
+};
 
 function resultChannel(result) {
   const stream = new EventEmitter();
@@ -74,9 +91,9 @@ function nodeEvalChannel(code) {
 }
 
 class BoundaryClient extends EventEmitter {
-  constructor({ uid = 0, admin = adminResult(), execute = processChannel, hostDigest = digest } = {}) {
+  constructor({ uid = 0, login, admin = adminResult(), execute = processChannel, hostDigest = digest } = {}) {
     super();
-    Object.assign(this, { uid, admin, execute, hostDigest, calls: [] });
+    Object.assign(this, { uid, login, admin, execute, hostDigest, calls: [] });
   }
   connect(config) {
     this.config = config;
@@ -85,7 +102,7 @@ class BoundaryClient extends EventEmitter {
   }
   exec(command, callback) {
     this.calls.push(command);
-    if (command === LOGIN_PROBE) callback(null, resultChannel({ code: 0, stdout: `${this.uid}\n` }));
+    if (command === LOGIN_PROBE) callback(null, resultChannel(this.login ?? { code: 0, stdout: `${this.uid}\n` }));
     else if (["root", "sudo-n"].some(mode => command === administrativeCommand(ADMIN_PROBE, mode))) callback(null, resultChannel(this.admin));
     else callback(null, this.execute(command));
   }
@@ -238,7 +255,7 @@ test("administrative attestation rejects forged UIDs, remote and rootless engine
 
 test("administrative prerequisite failures identify the missing capability without remote diagnostics", () => {
   for (const [code, category] of [[70, /Linux/u], [71, /UID 0/u], [72, /GNU/u],
-    [73, /existing.*\/docker/u], [74, /Docker CLI/u], [75, /context/u],
+    [73, /existing.*Docker parent/u], [74, /Docker CLI/u], [75, /context/u],
     [76, /Engine/u], [77, /Compose/u], [78, /selectors/u], [79, /builder/u], [1, /passwordless/u]]) {
     assert.throws(() => parseAdministrativeProbe({ code, stdout: "private-output", stderr: "private-policy" }),
       error => category.test(error.message) && !/private-output|private-policy/u.test(error.message));
@@ -256,7 +273,8 @@ test("prepared identity records attested UID instead of trusting the username", 
   remote.close();
   assert.equal(client.ended, true);
   const nonroot = new BoundaryClient({ uid: 1000 });
-  await assert.rejects(() => connect(nonroot), /actual UID 0/u);
+  // Four of the five server pages have no sudo control, so the refusal must not point at one.
+  await assert.rejects(() => connect(nonroot), error => error.code === "ssh_not_root" && !/\bselect\b/iu.test(error.message));
   assert.equal(nonroot.calls.length, 1);
   assert.equal(nonroot.ended, true);
   const denied = new BoundaryClient({ uid: 1000, admin: { code: 1, stdout: "", stderr: "fixture-sensitive-sudo-policy" } });
@@ -783,7 +801,8 @@ test("read-only preparation has a finite deadline even when SSH remains responsi
     channel.end = () => {};
     callback(null, channel);
   };
-  await assert.rejects(() => connectVerified(options, { createClient: () => client, prepareTimeoutMs: 10 }), /probes timed out/u);
+  await assert.rejects(() => connectVerified(options, { createClient: () => client, prepareTimeoutMs: 10 }),
+    error => error.code === "vps_prereq_probe" && /probes timed out/u.test(error.message));
   assert.equal(client.ended, true);
 });
 
@@ -935,4 +954,213 @@ test("verified nonzero remote command and rejected upload release the lease", as
     assert.equal(executions, 3);
     remote.close();
   }
+});
+
+const PREREQUISITE_CODES = {
+  70: "vps_prereq_linux", 71: "vps_prereq_uid", 72: "vps_prereq_tools", 73: "vps_prereq_docker_dir",
+  74: "vps_prereq_docker_cli", 75: "vps_prereq_docker_context", 76: "vps_prereq_docker_engine",
+  77: "vps_prereq_compose", 78: "vps_prereq_builder_config", 79: "vps_prereq_default_builder",
+};
+const refusal = action => { try { action(); } catch (error) { return error; } return assert.fail("Expected a refusal."); };
+
+test("every probe refusal carries its own code and fits the browser limit", () => {
+  const seen = new Set();
+  for (const [exit, code] of Object.entries(PREREQUISITE_CODES)) {
+    const error = refusal(() => parseAdministrativeProbe({ code: Number(exit), stdout: "", stderr: "" }));
+    assert.equal(error.code, code);
+    assert.ok(error.message.length <= 240, `${code} is ${error.message.length} characters`);
+    assert.doesNotMatch(error.message, /(?:^|\s)\/[A-Za-z]|\w:\/\/\//u);
+    seen.add(error.message);
+  }
+  assert.equal(seen.size, 10, "each exit keeps its own sentence");
+  for (const [result, code] of [
+    [{ code: 1, stdout: "" }, "vps_prereq_probe"],
+    [{ code: 80, stdout: "" }, "vps_prereq_probe"],
+    [{ ...adminResult(), stdout: "unexpected" }, "vps_prereq_probe"],
+    [adminResult({ SecurityOptions: ["name=rootless"] }), "vps_prereq_rootless"],
+    [{ ...adminResult(), stdout: adminResult().stdout.replace(/default\n$/u, "other\n") }, "vps_prereq_default_builder"],
+  ]) {
+    const error = refusal(() => parseAdministrativeProbe(result));
+    assert.equal(error.code, code);
+    assert.ok(error.message.length <= 240);
+  }
+  assert.equal(refusal(() => parseLoginUid({ code: 1, stdout: "" })).code, "vps_prereq_probe");
+});
+
+test("Compose versions with a distribution revision pass the probe", () => {
+  for (const version of ["2.40.3+ds1-0ubuntu1~24.04.1", "2.24.6+ds1-0ubuntu2", "v2.27.1-desktop.1", "5.6.1", "2.39.2"]) {
+    assert.equal(parseAdministrativeProbe(adminResult({}, version)).builder, "default", version);
+  }
+  for (const version of ["2.40", "two.forty.three", "2.40.3 extra", "2.40.3;id", `2.40.3+${"a".repeat(64)}`, ""]) {
+    assert.equal(refusal(() => parseAdministrativeProbe(adminResult({}, version))).code, "vps_prereq_probe", version);
+  }
+});
+
+test("only the exact cloud-init sentence becomes root sign-in guidance", async () => {
+  const sentence = name => `Please login as the user "${name}" rather than the user "root".`;
+  for (const stdout of [`${sentence("ubuntu")}\n\n`, `${sentence("ubuntu")}\n`, sentence("ec2-user")]) {
+    const error = refusal(() => parseLoginUid({ code: 142, stdout, stderr: "private-banner" }));
+    assert.equal(error.code, "ssh_root_login_disabled");
+    assert.match(error.message, stdout.includes("ec2-user") ? /"ec2-user"/u : /"ubuntu"/u);
+    assert.ok(error.message.length <= 240);
+    assert.doesNotMatch(error.message, /private-banner/u);
+  }
+  assert.ok(refusal(() => parseLoginUid({ code: 142, stdout: `${sentence("u".repeat(32))}\n\n` })).message.length <= 240);
+  for (const stdout of [
+    `${sentence("ubuntu")}\n\nprivate-extra-line\n`,
+    `private-leading-line\n${sentence("ubuntu")}\n`,
+    `${sentence("ubuntu")} private-suffix\n`,
+    `${sentence("ubuntu").toLowerCase()}\n`,
+    `${sentence(" ubuntu")}\n`,
+    `${sentence("u".repeat(33))}\n`,
+    `${sentence("ubuntu; private-command")}\n`,
+    `${sentence("")}\n`,
+    `${sentence("ubuntu").replace('"root"', '"admin"')}\n`,
+    `${sentence("ubuntu")}\n\n\n`,
+  ]) {
+    const error = refusal(() => parseLoginUid({ code: 142, stdout, stderr: "" }));
+    assert.equal(error.code, "vps_prereq_probe", JSON.stringify(stdout));
+    assert.doesNotMatch(error.message, /private-|ubuntu|uuuu/u);
+  }
+  const client = new BoundaryClient({ login: { code: 142, stdout: `${sentence("ubuntu")}\n\n` } });
+  await assert.rejects(() => connect(client), error => error.code === "ssh_root_login_disabled");
+  assert.deepEqual(client.calls, [LOGIN_PROBE]);
+  assert.equal(client.ended, true);
+});
+
+test("a sign-in the server refuses has its own code and never ssh2's text", async () => {
+  class RefusingClient extends BoundaryClient {
+    constructor(failure) { super(); this.failure = failure; }
+    connect(config) { this.config = config; queueMicrotask(() => this.emit("error", this.failure)); }
+  }
+  const refused = () => Object.assign(new Error("All configured authentication methods failed"), { level: "client-authentication" });
+  for (const changes of [{}, { useAgent: true, password: undefined }]) {
+    const client = new RefusingClient(refused());
+    const { password: _password, ...agentOptions } = { ...options, ...changes };
+    await assert.rejects(
+      () => connectVerified(changes.useAgent ? agentOptions : options,
+        { createClient: () => client, resolveAgent: async () => ({ agent: "/fixture/agent" }) }),
+      error => error.code === "ssh_auth_refused" && error.message.length <= 240 &&
+        !/All configured authentication methods failed/u.test(error.message));
+    assert.equal(client.ended, true);
+    assert.deepEqual(client.calls, []);
+  }
+  for (const level of ["client-timeout", "client-socket", "agent", undefined]) {
+    const client = new RefusingClient(Object.assign(new Error("private-transport-detail"), { level }));
+    await assert.rejects(() => connect(client),
+      error => error.code === undefined && /confirmed fingerprint/u.test(error.message) && !/private-transport-detail/u.test(error.message));
+  }
+});
+
+test("host facts repeat what the probe reported and keep unknown values apart", async () => {
+  const host = describeAdministrativeHost(adminResult(capturedInfo, "5.6.1"));
+  assert.deepEqual(host, capturedHost);
+  assert.equal(Object.isFrozen(host) && Object.isFrozen(host.security), true);
+
+  const facts = (info, compose) => describeAdministrativeHost(adminResult(info, compose));
+  assert.equal(facts({ ...capturedInfo, Architecture: "x86_64" }).arch, "x86_64");
+  // Docker listed its plugins and Buildx is not among them: known to be absent.
+  const plugins = capturedInfo.ClientInfo.Plugins;
+  assert.equal(facts({ ...capturedInfo, ClientInfo: { Plugins: plugins.slice(1) } }).buildxVersion, null);
+  assert.equal(facts({ ...capturedInfo, ClientInfo: { Plugins: [{ Name: "buildx", Err: "failed to fetch metadata" }] } }).buildxVersion, null);
+  // A missing plugin list is handled safely and reported as unknown (null).
+  for (const info of [{ ...capturedInfo, ClientInfo: undefined }, { ...capturedInfo, ClientInfo: { Plugins: null } }, {}]) {
+    const unknown = facts(info);
+    assert.equal(unknown.buildxVersion, null);
+    assert.equal(JSON.parse(JSON.stringify(unknown)).buildxVersion, null);
+  }
+  assert.deepEqual(facts({ SecurityOptions: ["name=selinux", "name=userns", "name=seccomp,profile=builtin", "name=selinux"] }).security,
+    ["selinux", "userns", "seccomp"]);
+  assert.equal(facts({}, "2.40.3+ds1-0ubuntu1~24.04.1").composeVersion, "2.40.3+ds1-0ubuntu1~24.04.1");
+  assert.equal(facts({}, "v2.27.1-desktop.1").composeVersion, "2.27.1-desktop.1");
+  assert.equal(facts({ ServerVersion: "27.5.1 (custom build)" }).dockerVersion, "27.5.1");
+
+  // Remote text never becomes a fact unless it is short and plain.
+  const hostile = facts({
+    OperatingSystem: "Ubuntu\u001b[31m 24.04", KernelVersion: "k".repeat(65), Architecture: "x86_64; id",
+    NCPU: "4", MemTotal: -1, ClientInfo: { Plugins: [{ Name: "buildx", Version: "<script>" }] },
+  });
+  assert.deepEqual({ ...hostile }, {
+    os: null, kernel: null, arch: null, dockerVersion: "28.0.1", composeVersion: "2.39.2",
+    buildxVersion: null, memoryBytes: null, cpus: null, security: ["seccomp"],
+  });
+  for (const result of [null, {}, { stdout: "not-a-probe" }, { stdout: 7 }]) {
+    const empty = describeAdministrativeHost(result);
+    assert.deepEqual([empty.os, empty.arch, empty.dockerVersion, empty.composeVersion, empty.buildxVersion, empty.security],
+      [null, null, null, null, null, null]);
+  }
+
+  const remote = await connect(new BoundaryClient({ admin: adminResult(capturedInfo, "5.6.1") }));
+  assert.deepEqual(remote.host, capturedHost);
+  assert.deepEqual(Object.keys(remote), ["identity", "scope", "host"]);
+  assert.throws(() => { remote.host = {}; }, TypeError);
+  assert.throws(() => { remote.host.arch = "x86_64"; }, TypeError);
+  remote.close();
+});
+
+test("the SSH password does not outlive authentication and commands still run", async () => {
+  // ssh2 copies the password onto its own config object; model that copy.
+  class CopyingClient extends BoundaryClient {
+    connect(received) {
+      this.received = received;
+      this.passwordAtConnect = received.password;
+      this.config = { username: received.username, password: received.password };
+      queueMicrotask(() => received.hostVerifier(this.hostDigest) ? this.emit("ready") : this.emit("error", new Error("untrusted host")));
+    }
+  }
+  const client = new CopyingClient({ execute: () => resultChannel({ code: 0, stdout: "still-connected" }) });
+  const remote = await connect(client);
+  assert.equal(client.passwordAtConnect, options.password, "authentication itself still receives the password");
+  assert.equal(Object.hasOwn(client.received, "password"), false);
+  assert.equal(Object.hasOwn(client.config, "password"), false);
+  assert.equal(JSON.stringify([client.received, client.config]).includes(options.password), false);
+  assert.deepEqual(await remote.exec("fixture-command"), { stdout: "still-connected", stderr: "", code: 0 });
+  remote.close();
+
+  const rejected = new CopyingClient({ hostDigest: "cd".repeat(32) });
+  await assert.rejects(() => connect(rejected), /confirmed fingerprint/u);
+  assert.equal(Object.hasOwn(rejected.received, "password"), false);
+  assert.equal(Object.hasOwn(rejected.config, "password"), false);
+});
+
+test("lock failures name the lock without its path and keep a failed step's own sentence", async () => {
+  const lock = VPS_OPERATION_LOCKS.supergrok;
+  const safe = error => {
+    assert.ok(error.safeMessage.length <= 240, `${error.safeMessage.length} characters`);
+    assert.doesNotMatch(`${error.message} ${error.safeMessage}`, /\/docker\//u);
+    assert.match(error.safeMessage, /\.supergrok-operation\.lock/u);
+    assert.equal(error.operationLockRetained, true);
+    return true;
+  };
+  // The lock exists already or cannot be created.
+  await assert.rejects(() => withVpsOperationLock({ exec: async () => ({ code: 1, stdout: "" }) }, lock, () => assert.fail("must not run")),
+    error => safe(error) && error.code === "vps_operation_lock");
+  // The operation succeeded but the lock could not be released.
+  let calls = 0;
+  const releaseFails = { exec: async () => (++calls === 1 ? { code: 0, stdout: "7:11\n" } : { code: 1, stdout: "" }) };
+  await assert.rejects(() => withVpsOperationLock(releaseFails, lock, () => "done"),
+    error => safe(error) && error.code === "vps_operation_lock");
+  // A failed step keeps its code and sentence; the lock notice is added, shortened when needed.
+  for (const [sentence, kept] of [
+    ["The companion did not start in time.", true],
+    ["The companion did not start in time. Check its status, then replace or remove it. ".repeat(2).trim(), true],
+    ["s".repeat(239), false],
+  ]) {
+    calls = 0;
+    await assert.rejects(() => withVpsOperationLock(releaseFails, lock, () => {
+      throw Object.assign(new Error("private /docker/n8n-openai-oauth diagnostic"), { safeMessage: sentence, code: "vps_step_start" });
+    }), error => {
+      assert.ok(error.safeMessage.length <= 240, `${error.safeMessage.length} characters`);
+      assert.match(error.safeMessage, /\.supergrok-operation\.lock/u);
+      assert.equal(error.safeMessage.startsWith(sentence), kept);
+      assert.equal(error.code, "vps_step_start");
+      assert.equal(error.operationLockRetained, true);
+      return true;
+    });
+  }
+  // A build that exits non-zero is a named step, and its verified cleanup releases the lock.
+  calls = 0;
+  const buildFails = { exec: async command => (command.includes("BUILDX_CONFIG=") ? { code: 7, stdout: "" } : { code: 0, stdout: "7:11\n" }) };
+  await assert.rejects(() => withVpsOperationLock(buildFails, lock, build => build("docker compose build fixture")),
+    error => error.code === "vps_step_build" && error.operationLockRetained !== true);
 });

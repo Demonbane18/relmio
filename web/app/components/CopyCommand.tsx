@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useRef, useState, useSyncExternalStore } from "react";
 import { nextTabIndex } from "./tabKeys";
 import { CopyButton } from "./ui/CopyButton";
 import { Icon } from "./ui/Icon";
@@ -18,7 +18,13 @@ const installMethods = [
     id: "homebrew",
     label: "Homebrew",
     command: "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio",
-    note: "For macOS or Linux with Homebrew. Trusts only the Relmio formula, then installs Relmio and Node.js.",
+    note: (
+      <>
+        For macOS or Linux with Homebrew. Trusts only the Relmio formula, then installs the{" "}
+        <code>relmio</code> command and Node.js. It does not open the wizard, so run{" "}
+        <code>relmio</code> next.
+      </>
+    ),
     prompt: "$",
   },
   {
@@ -47,10 +53,24 @@ const installMethods = [
 
 type InstallMethodId = (typeof installMethods)[number]["id"];
 
+// The platform does not change during a visit, so there is nothing to subscribe to.
+function subscribeToPlatform() {
+  return () => {};
+}
+
+function isWindows() {
+  const { userAgentData } = navigator as Navigator & { userAgentData?: { platform: string } };
+  return /^win/iu.test(userAgentData?.platform ?? navigator.platform);
+}
+
 /** Installation method tabs and the selected command in a kit terminal.
-    Arrow keys, Home and End move between tabs and select them. */
+    Arrow keys, Home and End move between tabs and select them. The server
+    renders the macOS / Linux tab; after hydration a Windows visitor who has
+    not chosen a tab gets PowerShell. */
 export function CopyCommand() {
-  const [selectedMethod, setSelectedMethod] = useState<InstallMethodId>("posix");
+  const windows = useSyncExternalStore(subscribeToPlatform, isWindows, () => false);
+  const [chosenMethod, setChosenMethod] = useState<InstallMethodId | null>(null);
+  const selectedMethod = chosenMethod ?? (windows ? "powershell" : "posix");
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   function moveBetweenTabs(event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) {
@@ -58,7 +78,7 @@ export function CopyCommand() {
     if (nextIndex === null) return;
 
     event.preventDefault();
-    setSelectedMethod(installMethods[nextIndex].id);
+    setChosenMethod(installMethods[nextIndex].id);
     tabRefs.current[nextIndex]?.focus();
   }
 
@@ -105,7 +125,7 @@ export function CopyCommand() {
               aria-selected={selected}
               aria-controls={`install-method-${method.id}-panel`}
               tabIndex={selected ? 0 : -1}
-              onClick={() => setSelectedMethod(method.id)}
+              onClick={() => setChosenMethod(method.id)}
               onKeyDown={(event) => moveBetweenTabs(event, index)}
             >
               {method.label}
@@ -120,6 +140,9 @@ export function CopyCommand() {
           role="tabpanel"
           id={`install-method-${method.id}-panel`}
           aria-labelledby={`install-method-${method.id}-tab`}
+          // Only a tab the visitor chose fades in; the first panel and the
+          // Windows default appear at once.
+          className={chosenMethod ? "rm-fade-in" : undefined}
           hidden={selectedMethod !== method.id}
         >
           <div className={`rm-terminal ${styles.terminal}`}>

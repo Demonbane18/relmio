@@ -25,6 +25,7 @@ import {
   createAssistantSecrets,
   createSearxngSettings,
 } from "../src/domain/assistant-templates.js";
+import { SHARED_ROOT_COMMAND } from "../src/domain/safety.js";
 import { installAssistant } from "../src/services/assistant-installer.js";
 import { startWizardServer } from "../src/web/server.js";
 
@@ -64,6 +65,8 @@ function createFakeRemote({
     stderr: "",
   },
   cleanupResult = { code: 0, stdout: "", stderr: "" },
+  sharedFolderCode = 0,
+  assistantFolderCode = 0,
 } = {}) {
   const commands = [];
   const uploads = [];
@@ -80,6 +83,8 @@ function createFakeRemote({
       if (command === ASSISTANT_PRECHECK_COMMAND) {
         return { code: precheckCode, stdout: precheckState, stderr: "" };
       }
+      if (command === SHARED_ROOT_COMMAND) return { code: sharedFolderCode, stdout: "", stderr: "" };
+      if (command.startsWith(`[ ! -L ${ASSISTANT_ROOT} ]`)) return { code: assistantFolderCode, stdout: "", stderr: "" };
       if (command.includes("docker network inspect ")) {
         return { code: collisionCode, stdout: collisionState, stderr: "" };
       }
@@ -119,9 +124,13 @@ function createFakeRemote({
       }
       return { code: 0, stdout: "", stderr: "" };
     },
-    async upload(path, contents, mode) {
+    // The installer stages and renames each file. A plain SFTP write would follow a link.
+    async publishManagedFile(path, contents, mode) {
       uploads.push({ path, contents: String(contents), mode });
       events.push({ type: "upload", value: path });
+    },
+    async upload() {
+      throw new Error("The Assistant installer must not use a plain upload.");
     },
   };
 }
@@ -165,7 +174,7 @@ test("AI Assistant can claim only a missing shared root and rejects unmanaged or
     randomBytes: sequenceRandomBytes(),
   });
   assert.ok(remote.uploads.some((upload) => upload.path === ASSISTANT_ROOT_MARKER_PATH && upload.mode === 0o600));
-  assert.ok(remote.commands.includes(`install -d -m 0755 /docker/n8n-openai-oauth`));
+  assert.ok(remote.commands.includes(SHARED_ROOT_COMMAND));
   assert.match(ASSISTANT_PRECHECK_COMMAND, /\[ ! -d \/docker\/n8n-openai-oauth \]/);
   assert.match(ASSISTANT_PRECHECK_COMMAND, /\.managed-by-relmio-root/);
 
@@ -177,6 +186,39 @@ test("AI Assistant can claim only a missing shared root and rejects unmanaged or
     );
     assert.deepEqual(unsafeRemote.uploads, []);
   }
+});
+
+test("AI Assistant writes nothing when the shared folder or its own folder fails the ownership guard", async () => {
+  for (const [options, label] of [
+    [{ sharedFolderCode: 1 }, /shared folder ownership check failed/u],
+    [{ assistantFolderCode: 1 }, /AI Assistant folder ownership check failed/u],
+  ]) {
+    for (const precheckState of ["new\n", `managed\n${serializeAssistantMarker(generatedInstallation())}`]) {
+      const remote = createFakeRemote({ ...options, precheckState });
+      await assert.rejects(
+        () => installAssistant({ remote, networkName: "proxy", confirmed: true, includeSearxng: true, randomBytes: sequenceRandomBytes() }),
+        label,
+      );
+      assert.deepEqual(remote.uploads, []);
+      assert.ok(remote.commands.every((command) => !/^chmod | config --quiet$| up -d | down --volumes$/u.test(command)));
+    }
+  }
+});
+
+test("AI Assistant proves both folders before the first file and publishes every file with its reviewed mode", async () => {
+  const remote = createFakeRemote();
+  await installAssistant({ remote, networkName: "proxy", confirmed: true, includeSearxng: true, randomBytes: sequenceRandomBytes() });
+  const firstUpload = remote.events.findIndex((event) => event.type === "upload");
+  const guards = [SHARED_ROOT_COMMAND, remote.commands.find((command) => command.startsWith(`[ ! -L ${ASSISTANT_ROOT} ]`))];
+  for (const guard of guards) {
+    const at = remote.events.findIndex((event) => event.type === "command" && event.value === guard);
+    assert.ok(at !== -1 && at < firstUpload);
+  }
+  assert.deepEqual(Object.fromEntries(remote.uploads.map((upload) => [upload.path.split("/").at(-1), upload.mode])), {
+    ".managed-by-relmio-root": 0o600, ".managed-by-relmio-ai-assistant": 0o600, ".env": 0o600,
+    "docker-compose.yml": 0o644, "searxng-settings.yml": 0o644,
+  });
+  assert.ok(remote.uploads.every((upload) => upload.path.startsWith("/docker/n8n-openai-oauth/")));
 });
 
 test("AI Assistant markers bind a random project and independent aliases with strict parsing", () => {

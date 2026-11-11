@@ -85,7 +85,7 @@ export const RULES = [
 
   // Hosting profiles and VPS access.
   [/^src\/domain\/hosting-/u, ["hosting"]],
-  [/^src\/(infrastructure\/ssh|services\/vps-operation-lock|services\/discovery)/u, ["vps"]],
+  [/^src\/(infrastructure\/ssh|services\/vps-operation-lock|services\/discovery|domain\/vps-host-report|domain\/vps-network)/u, ["vps"]],
 ];
 
 export function areasForPath(path) {

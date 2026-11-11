@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
 import test from "node:test";
+import ts from "typescript";
 import { nextTabIndex } from "../app/components/tabKeys.ts";
 
 const appFile = (path) =>
@@ -40,6 +42,69 @@ test("moves between installation method tabs with wrapping arrows, Home and End"
   assert.equal(nextTabIndex("End", 1, 5), 4);
   assert.equal(nextTabIndex("Enter", 2, 5), null);
   assert.equal(nextTabIndex("ArrowDown", 2, 5), null);
+});
+
+test("Windows gets PowerShell after hydration without replacing an explicit tab choice", async () => {
+  const source = await appFile("components/CopyCommand.tsx");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  const jsx = (type, props) => ({ type, props });
+  function* elements(node) {
+    if (Array.isArray(node)) {
+      for (const child of node) yield* elements(child);
+    } else if (node && typeof node === "object" && node.props) {
+      yield node;
+      yield* elements(node.props.children);
+    }
+  }
+
+  for (const [navigator, expected] of [
+    [{ platform: "Win32" }, "powershell"],
+    [{ platform: "MacIntel", userAgentData: { platform: "Windows" } }, "powershell"],
+    [{ platform: "Linux x86_64" }, "posix"],
+    [{ platform: "MacIntel" }, "posix"],
+  ]) {
+    let hydrated = false;
+    let chosen = null;
+    const exports = {};
+    runInNewContext(compiled, {
+      exports,
+      navigator,
+      require(name) {
+        if (name === "react") return {
+          useRef: () => ({ current: [] }),
+          useState: () => [chosen, (value) => { chosen = value; }],
+          useSyncExternalStore: (_subscribe, snapshot, serverSnapshot) => hydrated ? snapshot() : serverSnapshot(),
+        };
+        if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+        if (name === "./tabKeys") return { nextTabIndex };
+        if (name === "./ui/CopyButton") return { CopyButton: "copy-button" };
+        if (name === "./ui/Icon") return { Icon: "icon" };
+        if (name === "../install/install.module.css") return { default: {} };
+        throw new Error(`Unexpected import: ${name}`);
+      },
+    });
+    const render = () => [...elements(exports.CopyCommand())];
+    const selectedId = () => render().find((element) => element.props.role === "tab" && element.props["aria-selected"]).props.id;
+    assert.equal(selectedId(), "install-method-posix-tab", "server HTML always starts with POSIX");
+    hydrated = true;
+    assert.equal(selectedId(), `install-method-${expected}-tab`);
+    const visible = render().filter((element) => element.props.role === "tabpanel" && !element.props.hidden);
+    assert.equal(visible.length, 1);
+    assert.equal(visible[0].props.id, `install-method-${expected}-panel`);
+
+    render().find((element) => element.props.id === "install-method-homebrew-tab").props.onClick();
+    assert.equal(selectedId(), "install-method-homebrew-tab", "an explicit choice overrides the platform");
+
+    // A click replayed during hydration must count even if it picked the
+    // already-visible POSIX tab.
+    hydrated = false;
+    chosen = null;
+    render().find((element) => element.props.id === "install-method-posix-tab").props.onClick();
+    hydrated = true;
+    assert.equal(selectedId(), "install-method-posix-tab");
+  }
 });
 
 test("opens every new-tab link on the install, docs and changelog pages without an opener", async () => {

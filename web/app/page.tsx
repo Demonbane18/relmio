@@ -87,7 +87,7 @@ export default async function Home() {
             <div className={styles.actions}>
               <Link className={`rm-button rm-button--primary ${styles.cta}`} href="/install">
                 Install Relmio
-                <Icon name="arrow-right" size="sm" />
+                <Icon name="arrow-right" size="sm" className={styles.ctaArrow} />
               </Link>
               <Link className={`rm-button rm-button--ghost ${styles.cta}`} href="/docs">
                 <Icon name="book" size="sm" />

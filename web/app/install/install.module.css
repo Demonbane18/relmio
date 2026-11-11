@@ -69,6 +69,14 @@
   box-shadow: none;
 }
 
+/* A command named in a terminal note reads as terminal text, not as a chip. */
+.terminal :global(.rm-terminal__note) code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--rm-terminal-fg);
+}
+
 .noScript {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

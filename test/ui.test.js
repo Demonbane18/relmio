@@ -5,7 +5,10 @@ import vm from "node:vm";
 
 import {
   bindWizardNavigation,
+  flashCopied,
   readWizardSession,
+  whenVisible,
+  wizardApiError,
 } from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
 import { clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "../src/ui/ssh-form.js";
@@ -20,6 +23,17 @@ const rootIdentity = {
   privilege: "root", loginUid: 0, effectiveUid: 0, scope: "vps", generation: 1,
 };
 
+// A document stand-in for whenVisible: set hidden, then show() fires visibilitychange.
+function fakePage() {
+  const listeners = new Set();
+  return {
+    hidden: false,
+    addEventListener(_type, listener) { listeners.add(listener); },
+    removeEventListener(_type, listener) { listeners.delete(listener); },
+    show() { this.hidden = false; for (const listener of [...listeners]) listener(); },
+  };
+}
+
 test("credential timestamps are formatted in the user's local date and time", () => {
   assert.equal(
     formatAuthUpdatedAt("2026-07-28T01:11:01.000Z", {
@@ -31,6 +45,43 @@ test("credential timestamps are formatted in the user's local date and time", ()
   assert.equal(formatAuthUpdatedAt("not-a-date"), null);
 });
 
+test("a wizard API failure keeps what error help reads and nothing else", () => {
+  const error = wizardApiError({
+    error: "The remote command timed out.", status: 418, code: "vps_step_start", param: "host",
+    remoteOutcomeUnknown: true, retryBlocked: true, recovery: "fix-request", upstream: { body: "raw" }, accessToken: "must-not-leak",
+  }, 504, "The operation failed.");
+  assert.equal(error.message, "The remote command timed out.");
+  assert.equal(error.status, 504);
+  assert.deepEqual({ ...error }, { status: 504, code: "vps_step_start", param: "host", remoteOutcomeUnknown: true, retryBlocked: true });
+
+  const plain = wizardApiError({ error: 5, code: "x".repeat(129), param: "", remoteOutcomeUnknown: "true", retryBlocked: 1 }, 400, "The operation failed.");
+  assert.equal(plain.message, "The operation failed.");
+  assert.deepEqual({ ...plain }, { status: 400 });
+  assert.notEqual(wizardApiError(null, 502).message, "");
+
+  // The ChatGPT sign-in error keeps the same two flags beside its recovery advice.
+  const siwc = siwcErrorFromResponse({ error: "Timed out", remoteOutcomeUnknown: true, retryBlocked: true }, 504);
+  assert.equal(siwc.remoteOutcomeUnknown, true);
+  assert.equal(siwc.retryBlocked, true);
+  assert.equal("remoteOutcomeUnknown" in siwcErrorFromResponse({ error: "Timed out", remoteOutcomeUnknown: "yes" }, 504), false);
+});
+
+test("copy feedback marks the button for a moment and a second copy restarts it", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const attributes = new Set();
+  const button = {
+    toggleAttribute(name, on) { if (on) attributes.add(name); else attributes.delete(name); },
+    removeAttribute(name) { attributes.delete(name); },
+  };
+  flashCopied(button);
+  assert.equal(attributes.has("data-copied"), true);
+  t.mock.timers.tick(1_000);
+  flashCopied(button);
+  t.mock.timers.tick(1_000);
+  assert.equal(attributes.has("data-copied"), true, "the second copy restarts the timer");
+  t.mock.timers.tick(800);
+  assert.equal(attributes.has("data-copied"), false);
+});
 
 
 test("Responses API completion reminder stays until the user dismisses it", async () => {
@@ -281,6 +332,7 @@ test("VPS Ready shows image code, polls to completion, and keeps one-time key vi
   const timers = [];
   let onPagehide;
   let pollFails = false;
+  const page = fakePage();
   const context = {
     state, element, token: "fixture", sshSession: { adoptedIdentity: () => rootIdentity },
     window: { setTimeout(fn, delay) { timers.push({ fn, delay }); return timers.length; },
@@ -299,6 +351,7 @@ test("VPS Ready shows image code, polls to completion, and keeps one-time key vi
     clearEndedVpsConnectionState() { calls.push(["clear"]); },
     showStep(step) { calls.push(["step", step]); },
     focusVisible() {},
+    whenVisible: (tick) => whenVisible(tick, page),
   };
   const images = vm.runInNewContext(`${script.slice(start, end)}; ({ renderVpsInstallImages, pollVpsOwnerImages, changeVpsOwnerImages });`,
     context, { filename: "vps-ready-images.vm.js", timeout: 1_000 });
@@ -311,7 +364,18 @@ test("VPS Ready shows image code, polls to completion, and keeps one-time key vi
   assert.equal(element("result-images-code").textContent, "ABCD-1234");
   assert.equal(element("result-images-link").href, pending.pending.verificationUrl);
   assert.equal(timers.at(-1).delay, 5_000);
-  await images.pollVpsOwnerImages(state.vpsImagesGeneration);
+  // A hidden tab sends no status request. It checks once when it is shown again.
+  const statusReads = () => calls.filter(([path]) => path === "/api/siwc/vps/images/login-status").length;
+  page.hidden = true;
+  timers.at(-1).fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statusReads(), 0);
+  page.show();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statusReads(), 1);
+  page.show();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statusReads(), 1, "one tick per return to the tab");
   assert.equal(element("result-images-pending").hidden, true);
   assert.match(element("result-images-status").textContent, /Codex image sign-in complete for images@example\.test \(plus\).*gpt-image-2.*not been tested/u);
   assert.equal(element("result-key").textContent, "one-time-client-key");
@@ -1634,6 +1698,7 @@ test("SuperGrok device polling defers while another VPS read is active", async (
       return id;
     },
   };
+  const page = fakePage();
   const context = {
     api: async () => {
       apiCalls += 1;
@@ -1649,6 +1714,7 @@ test("SuperGrok device polling defers while another VPS read is active", async (
     setMessage() {},
     state,
     window,
+    whenVisible: (tick) => whenVisible(tick, page),
   };
   vm.runInNewContext(
     `${script.slice(start, end)}\nglobalThis.pollLogin = pollLogin;`,
@@ -1672,13 +1738,25 @@ test("SuperGrok device polling defers while another VPS read is active", async (
   assert.equal(apiCalls, 1);
   assert.equal(timers.get(state.pollTimer)?.delay, 2_000);
 
+  // A hidden tab sends no request. It checks once when it is shown again.
+  page.hidden = true;
+  timers.get(state.pollTimer).callback();
+  await flush();
+  assert.equal(apiCalls, 1);
+  page.show();
+  await flush();
+  assert.equal(apiCalls, 2);
+  page.show();
+  await flush();
+  assert.equal(apiCalls, 2, "one tick per return to the tab");
+
   state.busy = true;
   await context.pollLogin("fixture-install", state.loginGeneration);
   const cancelledTimer = state.pollTimer;
   state.loginGeneration += 1;
   timers.get(cancelledTimer).callback();
   await flush();
-  assert.equal(apiCalls, 1);
+  assert.equal(apiCalls, 2);
 
   state.busy = false;
   loginState = "expired";

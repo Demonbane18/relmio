@@ -31,7 +31,7 @@ authoritative publication check.
 
 ## Stable and experimental release channels
 
-Relmio 0.23.0 is the current stable release and the npm `latest` version.
+Relmio 0.25.0 is the current stable release and the npm `latest` version.
 Hosted installers also use `latest`.
 
 For a future prerelease such as `0.x.y-experimental.N`, use that exact version
@@ -126,7 +126,13 @@ Review the emitted tarball file list. It must not contain credentials, local
 environment files, SSH material, real infrastructure details, browser session
 URLs, unredacted recordings, or unrelated build artifacts. The package builder
 must stage `npm/README.md` as the tarball's root `README.md` without modifying
-the full GitHub guide.
+the full GitHub guide. The package includes `npm-shrinkwrap.json`, copied from
+the root lockfile. Registry installs with npm 10 or 11 honour it when npm
+records `_hasShrinkwrap: true`; npm 12 and later ignore it. A direct install
+from the tarball file does not honour it either, and the Homebrew formula
+uses that file install. Setup, example and diagram
+screenshots stay in the repository and are excluded from the package. The
+animated banner and logo used by the docs remain packaged.
 
 When `web/**` changed, also run the web lint, typecheck, tests, production
 Vercel build, and the approved browser QA. When installer or package-manager

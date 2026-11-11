@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 import { validateDockerName } from "../domain/validation.js";
 import { validateDockerObjectId } from "../domain/local-n8n-sidecar.js";
 import { validateInstallId } from "../domain/local-endpoints.js";
-import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
+import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
 import { createLocalN8nSuperGrokComposeFile, createLocalN8nSuperGrokDockerfile, createLocalN8nSuperGrokDockerignore, LOCAL_N8N_SUPERGROK_ENDPOINT } from "../domain/local-n8n-supergrok.js";
+import { requireSupportedVpsCpu } from "../domain/vps-build-state.js";
+import { assertVpsNetworkSupported } from "../domain/vps-network.js";
 import { withVpsOperationLock } from "./vps-operation-lock.js";
 
 export const VPS_SUPERGROK_ROOT = `${INSTALL_ROOT}/supergrok`;
@@ -15,13 +17,28 @@ const FILES = ["Dockerfile", ".dockerignore", "gateway.js", "chat.js", "session.
 const TARGET = "n8n-supergrok-oauth";
 const hash = value => createHash("sha256").update(value).digest("hex");
 const fail = () => new Error("The VPS SuperGrok ownership or safety check failed. Nothing outside its managed companion may be changed.");
+// A named setup step that failed on the server gets its own sentence and code. Ownership and
+// attestation mismatches keep the one sentence above. safeMessage survives an appended lock notice.
+const STEP_FAILURES = Object.freeze({
+  vps_step_compose_config: "Docker Compose did not accept the SuperGrok files on this server. Remove the incomplete companion, then install again.",
+  vps_step_build: "The SuperGrok image did not build on this server. Check free disk space and network access, remove the incomplete companion, then install again.",
+  vps_step_image_check: "Docker could not show the SuperGrok image after the build. Remove the incomplete companion, then install again.",
+  vps_step_start: "The SuperGrok companion did not become healthy within 90 seconds. Remove the incomplete companion, then install again.",
+});
+const stepFailure = code => Object.assign(new Error(STEP_FAILURES[code]), { safeMessage: STEP_FAILURES[code], code });
+// An installed companion is pinned to the name of its n8n container and to its Docker network,
+// not to that container's ID, so it stays manageable after the same n8n is recreated. Another
+// n8n on the same network is refused. The names below are validated Docker names from the marker.
+const otherContainer = marker => new Error(`SuperGrok is installed for the n8n container "${marker.containerName}". Choose that n8n to manage it.`);
+const otherNetwork = marker => new Error(`SuperGrok is installed on the Docker network "${marker.networkName}". Choose that network to manage it.`);
+const replacedNetwork = marker => new Error(`The Docker network "${marker.networkName}" was replaced after SuperGrok was installed on it. This companion cannot be managed here.`);
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const parse = text => { try { return JSON.parse(text); } catch { throw fail(); } };
 const parentGuard = `[ -d /docker ] && [ ! -L /docker ] && [ ! -L ${INSTALL_ROOT} ]`;
 
-async function run(remote, command, input) {
+async function run(remote, command, { input, step } = {}) {
   const result = await remote.exec(command, input === undefined ? undefined : { input });
-  if (result.code !== 0) throw fail();
+  if (result.code !== 0) throw step ? stepFailure(step) : fail();
   return result.stdout.trim();
 }
 
@@ -94,7 +111,7 @@ async function attestFiles(remote, marker, { partial = false } = {}) {
   await run(remote, checks.join(" && "));
 }
 
-async function boundary(remote, containerName, networkName, marker = null) {
+async function boundary(remote, containerName, networkName, marker = null, { install = false } = {}) {
   const container = validateDockerName(containerName);
   const network = validateDockerName(networkName);
   const [id, running, networks] = (await run(remote, `docker inspect ${container} --format '{{json .Id}}|{{json .State.Running}}|{{json .NetworkSettings.Networks}}'`)).split("|");
@@ -103,10 +120,13 @@ async function boundary(remote, containerName, networkName, marker = null) {
   const net = parse(await run(remote, `docker network inspect ${network} --format '{{json .}}'`));
   validateDockerObjectId(n8n.id, "n8n container");
   validateDockerObjectId(net.Id, "network");
-  if (n8n.networks[network].NetworkID !== net.Id || (marker && (marker.containerId !== n8n.id || marker.networkId !== net.Id))) throw fail();
+  if (n8n.networks[network].NetworkID !== net.Id) throw fail();
+  if (marker && marker.networkId !== net.Id) throw replacedNetwork(marker);
+  if (install && !marker) assertVpsNetworkSupported(net);
   for (const [id, item] of Object.entries(net.Containers ?? {})) {
     validateDockerObjectId(id, "connected container");
-    const networks = parse(await run(remote, `docker inspect ${id} --format '{{json .NetworkSettings.Networks}}'`));
+    // The first read already holds the selected n8n container's networks.
+    const networks = id === n8n.id ? n8n.networks : parse(await run(remote, `docker inspect ${id} --format '{{json .NetworkSettings.Networks}}'`));
     if ([item.Name, ...(networks[network]?.Aliases ?? [])].some(alias => ["n8n-supergrok", "supergrok-oauth"].includes(alias))) {
       if (!marker || item.Name !== names(marker).container) throw new Error("The private n8n-supergrok hostname is already in use. Nothing was changed.");
     }
@@ -120,7 +140,7 @@ function attestRunning(container, marker) {
   const host = container?.HostConfig;
   const mounts = container?.Mounts;
   if (!container || !owned(container.Config?.Labels, marker) || container.Image !== marker.imageId || container.Config.Image !== n.image ||
-      container.State?.Running !== true || container.State?.Health?.Status !== "healthy" ||
+      !settled(container) ||
       Object.keys(container.NetworkSettings?.Networks ?? {}).length !== 1 || network?.NetworkID !== marker.networkId || !network.Aliases?.includes("n8n-supergrok") ||
       Object.values(container.NetworkSettings?.Ports ?? {}).some(value => value !== null) || Object.keys(host?.PortBindings ?? {}).length ||
       host?.ReadonlyRootfs !== true || !host.CapDrop?.includes("ALL") || !host.SecurityOpt?.includes("no-new-privileges:true") ||
@@ -131,26 +151,37 @@ function withLock(remote, operation) {
   return withVpsOperationLock(remote, LOCK, operation);
 }
 
-export async function inspectVpsSuperGrok({ remote, containerName, networkName }) {
+// Docker reports Running while a container restarts, so only a settled, healthy runtime counts.
+const settled = container => container?.State?.Running === true && container.State.Restarting !== true &&
+  container.State.Status !== "restarting" && container.State.Health?.Status === "healthy";
+
+async function inspect(remote, containerName, networkName, { install = false } = {}) {
+  validateDockerName(containerName);
+  validateDockerName(networkName);
   const marker = await readMarker(remote);
-  const selected = await boundary(remote, containerName, networkName, marker);
+  if (marker && marker.containerName !== containerName) throw otherContainer(marker);
+  if (marker && marker.networkName !== networkName) throw otherNetwork(marker);
+  const selected = await boundary(remote, containerName, networkName, marker, { install });
   if (!marker) return { state: "absent", ...selected, installId: null, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT };
-  if (marker.containerName !== containerName || marker.networkName !== networkName) throw new Error("This VPS SuperGrok installation belongs to another n8n selection.");
-  await attestFiles(remote, marker, { partial: true });
   const resources = await attestResources(remote, marker);
-  let state = "partial";
-  if (resources.container?.State?.Running && marker.imageId) {
-    await attestFiles(remote, marker);
-    attestRunning(resources.container, marker);
-    state = "healthy";
-  }
-  return { state, ...selected, installId: marker.installId, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, credentialActionRunning: resources.credential?.State?.Running === true };
+  const healthy = settled(resources.container) && marker.imageId !== null;
+  // One attestation per check: every file for a healthy runtime, the files that exist otherwise.
+  await attestFiles(remote, marker, { partial: !healthy });
+  if (healthy) attestRunning(resources.container, marker);
+  return { state: healthy ? "healthy" : "partial", ...selected, installId: marker.installId, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, credentialActionRunning: resources.credential?.State?.Running === true };
+}
+
+export async function inspectVpsSuperGrok({ remote, containerName, networkName }) {
+  return inspect(remote, containerName, networkName);
 }
 
 export async function reviewVpsSuperGrok({ remote, containerName, networkName, action }) {
   if (!["install", "sign-in", "sign-out", "remove", "cancel-sign-in"].includes(action)) throw new TypeError("Choose a supported SuperGrok action.");
-  const status = await inspectVpsSuperGrok({ remote, containerName, networkName });
-  if ((action === "install" && status.state !== "absent") || (action !== "install" && status.state === "absent") ||
+  const install = action === "install";
+  // Known from the connection, before any remote read: the pinned Grok build exists for these CPUs only.
+  if (install) requireSupportedVpsCpu(remote.host, "SuperGrok");
+  const status = await inspect(remote, containerName, networkName, { install });
+  if ((install && status.state !== "absent") || (!install && status.state === "absent") ||
       (["sign-in", "sign-out"].includes(action) && status.state !== "healthy") ||
       (action === "cancel-sign-in" ? !status.credentialActionRunning : status.credentialActionRunning)) throw new Error("SuperGrok is not ready for that action. Refresh its status first.");
   return { action, containerName, networkName, containerId: status.containerId, networkId: status.networkId, installId: status.installId, installDirectory: ROOT, operationLockPath: LOCK, temporaryBuildStatePath: ["install", "sign-in", "sign-out"].includes(action) ? `${LOCK}/buildx` : null, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, publishedPorts: [], existingN8nChanges: [], existingN8nRestarts: 0 };
@@ -162,10 +193,10 @@ export async function installVpsSuperGrok({ remote, plan, confirmed }, { readAss
   if (confirmed !== true || plan.action !== "install") throw new Error("Confirm the reviewed SuperGrok installation first.");
   const precheck = await remote.exec(PRECHECK_COMMAND);
   if (precheck.code !== 0 || !["new", "managed"].includes(precheck.stdout.trim())) throw fail();
-  await run(remote, `${parentGuard} && install -d -m 0755 ${INSTALL_ROOT} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (set -C; printf '%s\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi`);
+  await run(remote, `${SHARED_ROOT_COMMAND} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (set -C; printf '%s\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi`);
   return withLock(remote, async build => {
     if (await readMarker(remote)) throw new Error("SuperGrok is already installed. Use its management actions.");
-    const selection = await boundary(remote, plan.containerName, plan.networkName);
+    const selection = await boundary(remote, plan.containerName, plan.networkName, null, { install: true });
     if (selection.containerId !== plan.containerId || selection.networkId !== plan.networkId) throw fail();
     const bytes = entropy(48);
     if (!Buffer.isBuffer(bytes) || bytes.length !== 48) throw fail();
@@ -181,14 +212,16 @@ export async function installVpsSuperGrok({ remote, plan, confirmed }, { readAss
     for (const name of FILES) await remote.upload(`${ROOT}/${name}`, files[name], 0o600);
     await attestFiles(remote, marker);
     const compose = composePrefix(marker);
-    await run(remote, `${compose} config --quiet`);
-    await build(`${compose} build supergrok-oauth`);
-    const image = parse(await run(remote, `docker image inspect ${names(marker).image} --format '{{json .}}'`));
+    await run(remote, `${compose} config --quiet`, { step: "vps_step_compose_config" });
+    // The lock helper tags a build that exited non-zero. Unknown outcomes and lock errors pass through.
+    try { await build(`${compose} build supergrok-oauth`); }
+    catch (error) { throw error?.code === "vps_step_build" ? stepFailure("vps_step_build") : error; }
+    const image = parse(await run(remote, `docker image inspect ${names(marker).image} --format '{{json .}}'`, { step: "vps_step_image_check" }));
     if (!owned(image.Config?.Labels, marker) || !/^sha256:[a-f0-9]{64}$/u.test(image.Id)) throw fail();
     marker.imageId = image.Id;
     await remote.upload(MARKER, JSON.stringify(marker), 0o600);
     await boundary(remote, plan.containerName, plan.networkName, marker);
-    await run(remote, `${compose} up -d --wait --wait-timeout 90 --no-build --no-deps supergrok-oauth`);
+    await run(remote, `${compose} up -d --wait --wait-timeout 90 --no-build --no-deps supergrok-oauth`, { step: "vps_step_start" });
     attestRunning((await attestResources(remote, marker)).container, marker);
     return { state: "healthy", installId, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, clientKey, credentialShownOnce: true, protocol: "openai-chat-completions" };
   });
@@ -203,18 +236,25 @@ export async function changeVpsSuperGrok({ remote, plan, confirmed }) {
   if (confirmed !== true || !["sign-in", "sign-out", "remove", "cancel-sign-in"].includes(plan.action)) throw new Error("Confirm the reviewed SuperGrok action first.");
   return withLock(remote, async build => {
     const marker = await readMarker(remote);
-    if (!marker || marker.installId !== plan.installId || marker.containerId !== plan.containerId || marker.networkId !== plan.networkId || marker.containerName !== plan.containerName || marker.networkName !== plan.networkName) throw fail();
-    await boundary(remote, plan.containerName, plan.networkName, marker);
+    if (!marker || marker.installId !== plan.installId || marker.networkId !== plan.networkId ||
+        marker.containerName !== plan.containerName || marker.networkName !== plan.networkName) throw fail();
+    // That name may resolve to a new container after n8n was recreated; it must be the reviewed one.
+    if ((await boundary(remote, plan.containerName, plan.networkName, marker)).containerId !== plan.containerId) throw fail();
+    // The owner confirmed this change above. Each branch sets an older shared folder to mode 0700
+    // after its own checks and right before its first write.
+    const tightenSharedFolder = () => run(remote, SHARED_ROOT_TIGHTEN_COMMAND);
     await attestFiles(remote, marker, { partial: plan.action === "remove" });
     const resources = await attestResources(remote, marker);
     if (plan.action === "cancel-sign-in") {
       if (!resources.credential?.State?.Running) throw new Error("The credential action has already ended. Refresh status.");
+      await tightenSharedFolder();
       await run(remote, `docker rm -f ${validateDockerObjectId(resources.credential.Id, "credential action")}`);
       return { state: "cancelled", installId: marker.installId };
     }
     if (resources.credential?.State?.Running) throw new Error("An official Grok credential action is still running. Wait for it to finish or expire before changing this companion.");
     const n = names(marker);
     if (plan.action === "remove") {
+      await tightenSharedFolder();
       for (const item of [resources.credential, resources.container]) if (item) await run(remote, `docker rm -f ${validateDockerObjectId(item.Id, "owned companion")}`);
       if (resources.volume) await run(remote, `docker volume rm ${n.volume}`);
       await attestFiles(remote, marker, { partial: true });
@@ -222,10 +262,17 @@ export async function changeVpsSuperGrok({ remote, plan, confirmed }) {
       return { state: "absent", removed: true };
     }
     attestRunning(resources.container, marker);
+    await tightenSharedFolder();
     if (resources.credential) await run(remote, `docker rm ${validateDockerObjectId(resources.credential.Id, "credential action")}`);
     const operation = plan.action === "sign-in" ? "login --device-auth" : "logout";
     // The deterministic Docker name excludes overlapping actions across SSH sessions.
-    await build(`${composePrefix(marker)} run -d --name ${n.credential} --no-deps --pull never --entrypoint /bin/sh supergrok-oauth -c ${quote(`umask 077; exec /usr/bin/timeout --signal=TERM --kill-after=2s ${plan.action === "sign-in" ? 900 : 60}s grok --no-auto-update ${operation}`)}`);
+    // Compose run starts the stored image, so a failed launch keeps the lock helper's sentence without its build code.
+    try {
+      await build(`${composePrefix(marker)} run -d --name ${n.credential} --no-deps --pull never --entrypoint /bin/sh supergrok-oauth -c ${quote(`umask 077; exec /usr/bin/timeout --signal=TERM --kill-after=2s ${plan.action === "sign-in" ? 900 : 60}s grok --no-auto-update ${operation}`)}`);
+    } catch (error) {
+      if (error?.code === "vps_step_build") delete error.code;
+      throw error;
+    }
     return { state: "pending", installId: marker.installId };
   });
 }
@@ -276,7 +323,7 @@ export async function discoverVpsGrokModels({ remote, installId, clientKey }) {
   await attestFiles(remote, marker);
   attestRunning((await attestResources(remote, marker)).container, marker);
   const probe = 'let key="";process.stdin.on("data",x=>key+=x);process.stdin.on("end",async()=>{try{const r=await fetch("http://127.0.0.1:14502/v1/models",{headers:{Authorization:"Bearer "+key},signal:AbortSignal.timeout(20000)});const j=await r.json();console.log(JSON.stringify({status:r.status,models:r.ok?j.data.map(x=>x.id):[],code:j.error?.code}));}catch{console.log(JSON.stringify({status:502,models:[],code:"provider_unavailable"}));}});';
-  const result = parse(await run(remote, `docker exec -i ${names(marker).container} node -e ${quote(probe)}`, clientKey));
+  const result = parse(await run(remote, `docker exec -i ${names(marker).container} node -e ${quote(probe)}`, { input: clientKey }));
   if (!Number.isInteger(result.status) || !Array.isArray(result.models) || result.models.length > 1024 || result.models.some(id => typeof id !== "string" || !/^[a-zA-Z0-9_.:-]{1,128}$/u.test(id))) throw fail();
   return { status: result.status, models: result.models, ...(result.status === 401 ? { code: "login_required" } : {}) };
 }

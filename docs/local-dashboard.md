@@ -146,11 +146,11 @@ Relmio's dashboard always has these nine rows, even when nothing is installed.
 | **Codex App Server (ChatGPT plan)** | Loopback WebSocket URL | **Set up** when absent; **Sign in**, **Manage account**, or local capability rotation when offered |
 | **Codex Chat Adapter** | Loopback HTTP `/chat` URL | **Set up** when absent; **Manage account** or local capability rotation when offered |
 | **SuperGrok** | Loopback SuperGrok Chat Completions URL | **Set up** when absent; sign-in/sign-out guidance and local capability rotation when offered |
-| **n8n + ngrok** | Local n8n, authenticated ngrok, and loopback inspector URLs | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
+| **n8n + ngrok** | Local n8n URL and, when enabled, the authenticated public URL | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
 | **AI Assistant tools** | Private Code Sandbox and optional SearXNG | **Set up**, manage optional search, or **Review removal** after ownership attestation |
 | **ChatGPT plan sidecar** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage account**, or **Review removal** after current ownership attestation |
 | **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
-| **Claude for n8n** | Private `http://relmio-claude:14502/v1`; approved models and approval expiry | **Set up**, **Manage Claude** (check sign-in, check models, renew approval, sign out) or **Review removal** only when offered |
+| **Claude for n8n** | Private `http://relmio-claude:14502/v1`; runtime, approved models and approval expiry | **Set up**, **Manage Claude** (check sign-in, check models, renew approval, sign out) or **Review removal** only when offered |
 | **Local model for n8n** | Private `http://n8n-local-model:11434/v1`; model readiness and selected ID | **Set up**, **Review model retry**, or **Review removal** only when offered |
 
 The local-model row distinguishes an installed runtime from a downloaded,
@@ -307,9 +307,11 @@ inventory. It does not reuse the previous setup plan.
 
 ## Provider controls
 
-The dashboard distinguishes runtime health, provider readiness, and inventory
-freshness. A healthy container does not prove identity verification, a granted
-ChatGPT plan permission, model entitlement, or a completed request.
+Overview shows how many connections are installed and their names. It does not
+show a constant provider-readiness card. The dashboard still distinguishes
+runtime health from provider readiness and from inventory freshness. A healthy
+container does not prove identity verification, a granted ChatGPT plan
+permission, model entitlement, or a completed request.
 
 Open **Add connection** and choose the ChatGPT route to select or manage saved
 SIWC registrations. The account view distinguishes identity-only, plan-paused,
@@ -321,14 +323,23 @@ SuperGrok remains a separate official CLI-managed session. Its sign-in,
 catalog, and inference status do not establish ChatGPT account state or
 permission.
 
-Claude for n8n needs macOS or Linux. It is a separate official Claude Code
-session in the companion's Docker volume. Sign in in your own terminal with
-`relmio claude companion login`, or
-`npx --yes --ignore-scripts relmio@latest claude companion login` if you use NPX.
-Relmio never handles the paste code or your Claude credentials. A healthy
-container or a listed model does not prove
-sign-in: **Check sign-in** must show `loggedIn: true` and
-`authMethod: "claude.ai"`. Approval expires within 7 days, and an expired
-approval keeps the row from reporting healthy until **Renew approval** repeats
-the four review questions. Claude state does not establish ChatGPT account
-state or permission. See [Claude subscription](claude-subscription.md#claude-on-this-computer).
+Claude for n8n needs macOS or Linux. It is unavailable on native Windows. It
+is a separate official Claude Code session in the companion's Docker volume.
+Sign in in your own terminal with `relmio claude companion login`, or
+`npx --yes --ignore-scripts relmio@latest claude companion login` if you use
+NPX. Relmio never handles the paste code or your Claude credentials. Review
+has two stages: the four owner answers, then the plan and final confirmation.
+**Manage Claude** shows the runtime Docker reported: Running, Starting,
+Restarting, Unhealthy or Stopped. **Starting. The first check takes about a
+minute.** is normal after an install, a renewal or a Docker restart. The row
+is Healthy only when the runtime is running, approval is current and the
+install is attested. Restarting or Unhealthy is never Healthy and never
+"Runtime reachable". Those states point at `docker logs relmio-claude` and,
+for `account_locked`, at
+[Shutdown and account-lock recovery](claude-native-prompt.md#shutdown-and-account-lock-recovery).
+Relmio does not clear that lock. **Keep my Claude sign-in for a reinstall**
+leaves the login volume, including any lock in it. It is not a recovery step.
+A listed model does not prove sign-in: **Check sign-in** must show
+`loggedIn: true` and `authMethod: "claude.ai"`. Approval expires within 7
+days. Claude state does not establish ChatGPT account state or permission.
+See [Claude subscription](claude-subscription.md#claude-on-this-computer).

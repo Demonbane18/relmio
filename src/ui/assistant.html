@@ -122,7 +122,7 @@
           <header class="rm-panel__header">
             <div class="rm-panel__heading">
               <span class="rm-eyebrow">Step 1 of 4</span>
-              <h2 id="vps-title" class="rm-h1" tabindex="-1">Check the server</h2>
+              <h2 id="vps-title" class="rm-h1" tabindex="-1">Check your server</h2>
             </div>
           </header>
 
@@ -143,33 +143,34 @@
                 <div class="rm-field assistant-field--wide">
                   <label class="rm-field__label" for="host">Server address</label>
                   <input id="host" class="rm-input" name="host" inputmode="url" autocomplete="off" aria-describedby="host-hint" required />
-                  <p id="host-hint" class="rm-field__hint">Use the hostname or IP your provider shows. Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
+                  <p id="host-hint" class="rm-field__hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>. Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
                 </div>
                 <div class="rm-field assistant-field--port">
-                  <label class="rm-field__label" for="port">SSH port</label>
-                  <input id="port" class="rm-input" name="port" type="number" min="1" max="65535" value="22" required />
+                  <label class="rm-field__label" for="port">Connection port</label>
+                  <input id="port" class="rm-input" name="port" type="number" min="1" max="65535" value="22" aria-describedby="port-hint" required />
+                  <p id="port-hint" class="rm-field__hint">Technical name: SSH port.</p>
                 </div>
               </div>
 
               <div id="fingerprint-box" class="assistant-fingerprint" hidden>
-                <p class="assistant-fingerprint__value"><span>Server identity (SSH fingerprint)</span> <code id="fingerprint-value"></code></p>
+                <p class="assistant-fingerprint__value"><span>SSH fingerprint</span> <code id="fingerprint-value"></code></p>
                 <label class="rm-check">
-                  <input id="fingerprint-confirm" type="checkbox" />
-                  <span>I checked this server identity. This is the server I mean to use.</span>
+                  <input id="fingerprint-confirm" type="checkbox" aria-describedby="fingerprint-hint" />
+                  <span>I checked this server identity. This is the server I mean to use.<span id="fingerprint-hint" class="rm-check__hint">Compare this fingerprint with a trusted record for your server before you approve it.</span></span>
                 </label>
               </div>
 
               <div class="assistant-fields">
                 <div class="rm-field">
-                  <label class="rm-field__label" for="username">Username</label>
+                  <label class="rm-field__label" for="username">Sign-in name</label>
                   <input id="username" class="rm-input" name="username" autocomplete="username" value="root" aria-describedby="username-hint" required />
                   <div class="assistant-field__more">
-                    <p id="username-hint" class="rm-field__hint">This route needs a root account (UID 0).</p>
+                    <p id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</p>
                     <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
-                      <summary>More about SSH sign-in</summary>
+                      <summary>More details about SSH sign-in</summary>
                       <div class="rm-disclosure__body">
-                        <p>Passwordless sudo is only on the local model page.</p>
-                        <p>To use the local SSH agent, load keys into it before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
+                        <p>Passwordless sudo works only on the local model page.</p>
+                        <p>For agent sign-in, load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
                       </div>
                     </details>
                   </div>
@@ -180,16 +181,16 @@
                   <p id="ssh-agent-status" class="rm-field__hint" role="status">Checking local SSH agent configuration…</p>
                 </div>
                 <div class="rm-field">
-                  <label class="rm-field__label" for="password">SSH password</label>
+                  <label class="rm-field__label" for="password">Server password</label>
                   <input id="password" class="rm-input" name="password" type="password" autocomplete="current-password" aria-describedby="password-hint" disabled required />
-                  <p id="password-hint" class="rm-field__hint">Used only for this verified SSH connection and never saved.</p>
+                  <p id="password-hint" class="rm-field__hint">Unlocks after the identity check. Clears after you connect.</p>
                 </div>
               </div>
 
             </div>
 
             <footer class="rm-panel__footer">
-              <button id="fingerprint-button" class="rm-button" type="button">Check server identity</button>
+              <button id="fingerprint-button" class="rm-button" type="button">Check this server</button>
               <label class="rm-check assistant-consent">
                 <input id="privileged-confirm" type="checkbox" />
                 <span>I understand this runner is privileged Docker-in-Docker, like host root, and is for testing. Production should use Daytona.</span>
@@ -208,10 +209,6 @@
             </div>
           </header>
           <div class="rm-panel__body">
-            <dl class="assistant-versions" aria-label="Detected Docker versions">
-              <div><dt>Docker</dt><dd id="docker-version">Not detected</dd></div>
-              <div><dt>Compose</dt><dd id="compose-version">Not detected</dd></div>
-            </dl>
             <div class="assistant-fields assistant-fields--two">
               <div class="rm-field">
                 <label class="rm-field__label" for="container-select">Running n8n container</label>
@@ -284,6 +281,10 @@
             </div>
           </header>
           <div class="rm-panel__body">
+            <div id="plan-warnings" class="rm-callout rm-callout--warning assistant-callout" role="note" aria-label="Plan warnings" hidden>
+              <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+              <ul id="plan-warnings-list" class="rm-callout__content assistant-warnings"></ul>
+            </div>
             <div class="assistant-review">
               <section aria-labelledby="will-title">
                 <h3 id="will-title" class="rm-h3">The wizard will</h3>
@@ -398,8 +399,9 @@
           </div>
           <div class="assistant-session">
             <p id="ssh-session" class="assistant-session__text" role="status"></p>
-            <button id="ssh-disconnect" class="rm-button rm-button--sm" type="button" hidden>Disconnect shared VPS session</button>
+            <button id="ssh-disconnect" class="rm-button rm-button--sm" type="button" hidden>Disconnect from VPS</button>
           </div>
+          <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
 
           <div class="assistant-safety">
             <p class="assistant-safety__item">

@@ -86,9 +86,16 @@ installer; use the separate [manual private-service guide](hosting-compatibility
 4. Check the server identity and independently compare the displayed host-key fingerprint before confirming and authenticating. Review the connected account, authentication and privilege. Changing those requires a new connection and a new plan, not silently reusing an old review.
 5. Select the running official n8n container, exact existing Docker network, and allowlisted model. Relmio reads Docker total allocated memory (`docker info` `MemTotal`), CPUs and available disk. Separately, `/proc/meminfo` `MemAvailable` must cover the model allowance plus 256 MiB for the helper and 256 MiB transient headroom, rechecked before apply/retry. Docker `MemTotal` is not free RAM or measured peak usage. Review the complete resource/download plan and explicitly confirm remote changes.
 6. The administrator's root-owned, non-symlink **`/docker` must already exist**,
-   without group/other write permission. On first approved use, Relmio may
-   create `/docker/n8n-openai-oauth` and its `.managed-by-relmio-root` marker;
-   it preserves existing managed-parent permissions and checks identity. Model
+   without group/other write permission. Create it yourself with
+   `sudo install -d -o root -g root -m 0755 /docker` if it is missing. That
+   command does not authorize the install, and `sudo` does not unlock a
+   root-only route. A new `/docker/n8n-openai-oauth` folder is created as
+   mode `0700` root:root. An existing folder from an earlier release is set
+   to mode `0700` the next time you confirm a change on that server, such as
+   an install, update, removal, sign-in or sign-out. Checking status,
+   reviewing a plan, sign-in polling and cancelling an image sign-in never
+   change it. That change does not reset the folder's existing group. Relmio
+   then writes its `.managed-by-relmio-root` marker. Model
    files live in `/docker/n8n-openai-oauth/local-model`. Its
    `.managed-by-relmio.json` ownership marker must be a root-owned mode-`0600`
    regular file with exactly one hard link. Relmio rechecks the marker and its
@@ -115,8 +122,9 @@ installer; use the separate [manual private-service guide](hosting-compatibility
    inference readiness succeeds, configure n8n below, and disconnect when
    finished.
 
-The VPS path requires **rootful Docker Engine, Docker Compose v2 and its Buildx
-build tooling in the selected administrative context**. The existing Docker
+The VPS path requires **rootful Docker Engine and Docker Compose v2 in the
+selected administrative context**. Docker's Buildx plugin is expected: without
+it the review warns and does not refuse, and builds are untested. The existing Docker
 context must already be `default`, pointing at `unix:///var/run/docker.sock`,
 with unambiguous built-in default builder selection and no
 `instances/default` shadow. Model setup reads only bounded

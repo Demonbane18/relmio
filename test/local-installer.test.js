@@ -1336,3 +1336,26 @@ test("Docker status marks local Claude unavailable on Windows and only there", a
   assert.equal(Object.hasOwn(linux, "claudeUnsupportedPlatform"), false);
   assert.deepEqual(await getLocalDockerStatus({ env: {}, platform: "darwin", runProcess: down }), { dockerAvailable: false });
 });
+
+test("Docker readiness and ownership checks run their independent read-only calls together", async t => {
+  // Reports how many Docker calls were in flight at once. Every call yields before it answers.
+  const peakDuring = async (runner, operation) => {
+    let active = 0; let peak = 0;
+    await operation(async spec => {
+      active += 1; peak = Math.max(peak, active);
+      try { await new Promise(resolve => setImmediate(resolve)); return await runner(spec); } finally { active -= 1; }
+    });
+    return peak;
+  };
+  const versions = async ({ args }) => ({ code: 0, stderr: "",
+    stdout: args[0] === "context" ? JSON.stringify("unix:///var/run/docker.sock") : args[0] === "version" ? "29.7.2\n" : "2.39.1\n" });
+  assert.equal(await peakDuring(versions, async runProcess => {
+    assert.equal((await getLocalDockerStatus({ env: {}, platform: "linux", runProcess })).dockerAvailable, true);
+  }), 2);
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  const runner = fakeDocker({ target: plan.target, destinationRoot });
+  await installLocalEndpoint({ plan, registration, confirmed: true }, deps(homeDirectory, runner));
+  assert.equal(await peakDuring(runner, async runProcess => {
+    assert.equal((await getManagedLocalEndpointStatus({ target: plan.target }, deps(homeDirectory, runProcess))).managed, true);
+  }), 3);
+});

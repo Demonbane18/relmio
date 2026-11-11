@@ -410,6 +410,12 @@
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 /* Accessibility helpers ---------------------------------------------------- */
@@ -771,7 +777,7 @@ button.rm-menu__link {
   color: var(--rm-ink);
 }
 
-.rm-sidebar__link:is([aria-current="page"], [aria-current="true"], [aria-selected="true"]) {
+.rm-sidebar__link:is([aria-current="page"], [aria-current="location"], [aria-current="true"], [aria-selected="true"]) {
   background: var(--rm-accent-soft);
   color: var(--rm-accent-ink);
   font-weight: 650;
@@ -791,6 +797,9 @@ button.rm-menu__link {
   position: relative;
 }
 
+/* The connector to the next step is two stacked lines: ::before is the track
+   and ::after fills it from the start once the step is done. */
+.rm-stepper__item:not(:last-child)::before,
 .rm-stepper__item:not(:last-child)::after {
   position: absolute;
   top: calc(50% + 1rem);
@@ -802,8 +811,15 @@ button.rm-menu__link {
   content: "";
 }
 
-.rm-stepper__item[data-state="done"]:not(:last-child)::after {
+.rm-stepper__item:not(:last-child)::after {
   background: var(--rm-accent-line);
+  transform: scaleY(0);
+  transform-origin: 50% 0;
+  transition: transform var(--rm-duration-slow) var(--rm-ease);
+}
+
+.rm-stepper__item[data-state="done"]:not(:last-child)::after {
+  transform: none;
 }
 
 .rm-stepper__link {
@@ -883,6 +899,7 @@ button.rm-menu__link {
   content: "";
   -webkit-mask: var(--rm-icon-check) center / contain no-repeat;
   mask: var(--rm-icon-check) center / contain no-repeat;
+  animation: rm-step-check var(--rm-duration) var(--rm-ease);
 }
 
 /* Quest track: the steps in one row at every width. Finished steps show a
@@ -893,6 +910,7 @@ button.rm-menu__link {
   grid-auto-flow: column;
 }
 
+.rm-stepper--track .rm-stepper__item:not(:last-child)::before,
 .rm-stepper--track .rm-stepper__item:not(:last-child)::after {
   top: calc(0.25rem + 0.875rem - 1px);
   right: calc(-50% + 1.125rem);
@@ -900,6 +918,15 @@ button.rm-menu__link {
   left: calc(50% + 1.125rem);
   width: auto;
   height: 2px;
+}
+
+.rm-stepper--track .rm-stepper__item:not(:last-child)::after {
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+.rm-stepper--track .rm-stepper__item[data-state="done"]:not(:last-child)::after {
+  transform: none;
 }
 
 .rm-stepper--track .rm-stepper__link {
@@ -1174,6 +1201,26 @@ details[open] > .rm-icon-button {
   background: var(--rm-accent-soft);
   box-shadow: inset 0 0 0 2px var(--rm-accent);
   color: var(--rm-ink);
+}
+
+/* Copy feedback: set data-copied on a copy button for about 1.8 s after a
+   successful copy. Its icon becomes a check, the button takes the success
+   colour and settles from a light press. The accessible name stays the same;
+   a polite status line announces the copy. A primary button keeps its colours. */
+:is(.rm-button, .rm-icon-button)[data-copied] {
+  animation: rm-copied var(--rm-duration-fast) var(--rm-ease);
+}
+
+:is(.rm-button, .rm-icon-button)[data-copied] > .rm-icon {
+  --rm-icon: var(--rm-icon-check);
+}
+
+:is(.rm-button:not(.rm-button--primary), .rm-icon-button)[data-copied] {
+  color: var(--rm-success);
+}
+
+:is(.rm-button:not(.rm-button--primary), .rm-icon-button--outline)[data-copied] {
+  border-color: var(--rm-success-line);
 }
 
 .rm-link {
@@ -1649,6 +1696,7 @@ a.rm-chip:hover {
   overflow-wrap: anywhere;
 }
 
+
 /* Badge: a short label. Tones: --accent, --success, --warning, --danger. */
 .rm-badge {
   --rm-tone: var(--rm-ink-muted);
@@ -1729,6 +1777,9 @@ a.rm-chip:hover {
   animation: rm-pulse 1.2s var(--rm-ease-in-out) infinite;
 }
 
+/* Progress: a track with one bar, moved by transform only. It is determinate
+   by default: set --rm-progress on the bar to a ratio from 0 to 1 and keep
+   aria-valuenow in step. Add --indeterminate while the amount is unknown. */
 .rm-progress {
   position: relative;
   height: 0.375rem;
@@ -1739,15 +1790,17 @@ a.rm-chip:hover {
 
 .rm-progress__bar {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--rm-progress, 0%);
-  border-radius: inherit;
+  inset: 0;
   background: var(--rm-accent);
-  transition: width var(--rm-duration-slow) var(--rm-ease);
+  transform: scaleX(var(--rm-progress, 0));
+  transform-origin: 0 50%;
+  transition: transform var(--rm-duration-slow) var(--rm-ease);
 }
 
 .rm-progress--indeterminate .rm-progress__bar {
+  right: auto;
   width: 40%;
+  border-radius: inherit;
   animation: rm-progress-slide 1.4s var(--rm-ease-in-out) infinite;
 }
 
@@ -1757,6 +1810,7 @@ a.rm-chip:hover {
     width: 100%;
     animation: none;
     opacity: 0.6;
+    transform: none;
   }
 
   .rm-button[aria-busy="true"]::before {
@@ -1791,6 +1845,48 @@ a.rm-chip:hover {
   to {
     transform: translateX(250%);
   }
+}
+
+/* Pages may wrap a theme switch in startViewTransition; the root crossfades. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--rm-duration);
+  animation-timing-function: var(--rm-ease);
+}
+
+@keyframes rm-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rm-copied {
+  from {
+    transform: scale(0.96);
+  }
+}
+
+@keyframes rm-step-check {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* New content fades in: a step or section body when it is shown, the body of
+   an opened disclosure or notice, and an alert. The fade replays each time the
+   element starts to render or its <details> opens. Opacity only, so no box
+   moves. Add .rm-fade-in to any other block that is shown the same way. */
+.rm-fade-in,
+.rm-panel__body,
+.rm-menu[open] > .rm-menu__panel,
+.rm-disclosure[open] > .rm-disclosure__body,
+.rm-notice[open] > .rm-notice__body {
+  animation: rm-fade-in var(--rm-duration) var(--rm-ease);
+}
+
+[role="alert"] {
+  animation: rm-fade-in var(--rm-duration-fast) var(--rm-ease);
 }
 
 
@@ -2168,6 +2264,10 @@ a.rm-chip:hover {
   color: var(--rm-terminal-fg);
 }
 
+.rm-terminal .rm-icon-button[data-copied] {
+  color: var(--rm-terminal-prompt);
+}
+
 /* Disclosure: optional detail behind a native <details>. */
 .rm-disclosure {
   min-width: 0;
@@ -2239,6 +2339,33 @@ a.rm-chip:hover {
 
 .rm-disclosure--plain > .rm-disclosure__body {
   padding: 0 0 0.5rem 1.5rem;
+}
+
+/* Compact disclosure: a one-line summary in small text for a secondary detail,
+   such as the server check in the wizards. */
+.rm-disclosure--compact > summary {
+  min-height: 1.5rem;
+  padding-block: 0;
+  font-size: var(--rm-text-sm);
+}
+
+/* A bounded region in a disclosure body. It scrolls by itself, so opening the
+   disclosure adds at most this height to the view. Give it tabindex="0", a
+   role and a name. */
+.rm-disclosure__region {
+  display: grid;
+  gap: 0.375rem;
+  max-height: 6rem;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  font-size: var(--rm-text-sm);
+}
+
+.rm-disclosure__list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-inline-start: 1.125rem;
 }
 
 /* Long-form text such as generated Markdown. */
@@ -2609,9 +2736,9 @@ a.rm-chip:hover {
     forced-color-adjust: none;
   }
 
-  .rm-nav__link:is([aria-current="page"], [aria-current="true"]),
-  .rm-menu__link:is([aria-current="page"], [aria-current="true"]),
-  .rm-sidebar__link:is([aria-current="page"], [aria-current="true"], [aria-selected="true"]),
+  .rm-nav__link:is([aria-current="page"], [aria-current="location"], [aria-current="true"]),
+  .rm-menu__link:is([aria-current="page"], [aria-current="location"], [aria-current="true"]),
+  .rm-sidebar__link:is([aria-current="page"], [aria-current="location"], [aria-current="true"], [aria-selected="true"]),
   .rm-tabs__tab[aria-selected="true"],
   .rm-choice:is([aria-pressed="true"], [aria-expanded="true"], [aria-current="true"], [aria-checked="true"], :has(.rm-choice__input:checked)) {
     outline: 2px solid Highlight;
@@ -2657,13 +2784,14 @@ a.rm-chip:hover {
     forced-color-adjust: none;
   }
 
-  .rm-stepper__item:not(:last-child)::after {
+  .rm-stepper__item:not(:last-child)::before {
     background: GrayText;
     forced-color-adjust: none;
   }
 
-  .rm-stepper__item[data-state="done"]:not(:last-child)::after {
+  .rm-stepper__item:not(:last-child)::after {
     background: CanvasText;
+    forced-color-adjust: none;
   }
 }
 

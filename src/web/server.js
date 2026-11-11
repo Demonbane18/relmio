@@ -37,12 +37,14 @@ import {
   scanHostFingerprint,
   getSshCapabilities,
 } from "../infrastructure/ssh.js";
+import { buildVpsHostReport } from "../domain/vps-host-report.js";
 import {
   validateHostname,
   validatePort,
   validateUsername,
 } from "../domain/validation.js";
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
+import { VPS_NETWORK_UNSUPPORTED } from "../domain/vps-network.js";
 import {
   ASSISTANT_ROOT,
   validateAssistantSearxngSelection,
@@ -1509,6 +1511,23 @@ function requireFreshAssistantInstallState(plan, networks, body) {
   }
 }
 
+// Read from discovery's marking of the selected network, so the plan makes no remote read. The
+// sandbox reaches the internet through its own network; only SearXNG needs the n8n network for that.
+function requireAssistantNetworkSupport(networks, networkName, includeSearxng) {
+  const support = networks?.support?.[networkName];
+  if (support?.supported !== false || (support.reason === "internal" && !includeSearxng)) return;
+  throw Object.assign(new Error(typeof support.message === "string" ? support.message
+    : "The selected Docker network cannot carry the AI Assistant companion. Choose another network, then check again."),
+  { code: VPS_NETWORK_UNSUPPORTED });
+}
+
+// Plain review warnings. They inform the owner and never refuse the plan.
+function assistantPlanWarnings(container) {
+  return container?.n8nSandboxPresent === true
+    ? ["This n8n already runs its own sandbox. Installing the Assistant companion adds a second privileged runner on this server."]
+    : [];
+}
+
 function requireDiscoveredContainer(state, containerName) {
   const container = state.discovery?.containers.find(
     (candidate) => candidate.name === containerName,
@@ -1997,7 +2016,6 @@ function requireSafeDashboardUrl(value, kind) {
     (kind === "codex-chatgpt" && loopback && url.protocol === "ws:" && url.pathname === "/") ||
     (["codex-chat", "xai-grok-build"].includes(kind) && loopback && url.protocol === "http:" && url.pathname === "/") ||
     (kind === "n8n-local" && loopback && url.protocol === "http:" && url.pathname === "/") ||
-    (kind === "ngrok-inspector" && loopback && url.protocol === "http:" && url.pathname === "/") ||
     (kind === "ngrok-public" && url.protocol === "https:" && url.pathname === "/");
   const hasExpectedPort = kind === "ngrok-public"
     ? url.port === "" && value === url.origin
@@ -2148,7 +2166,7 @@ function createSafeDashboardSnapshot(target, snapshot) {
       !/^http:\/\/localhost:[1-9][0-9]{0,4}$/u.test(snapshot.localUrl) ||
       snapshot.endpoints?.n8nLocal !== snapshot.localUrl ||
       snapshot.endpoints?.ngrokPublic !== snapshot.ngrokPublicUrl ||
-      (snapshot.publicAccess === "none" && (snapshot.ngrokPublicUrl !== null || snapshot.endpoints?.ngrokInspector !== null)) ||
+      (snapshot.publicAccess === "none" && snapshot.ngrokPublicUrl !== null) ||
       typeof snapshot.canResume !== "boolean" ||
       snapshot.canRemove !== true
     ) throw new TypeError("The local dashboard n8n snapshot is invalid.");
@@ -2164,8 +2182,6 @@ function createSafeDashboardSnapshot(target, snapshot) {
       endpoints: {
         n8nLocal: snapshot.localUrl,
         ngrokPublic: snapshot.ngrokPublicUrl,
-        ngrokInspector: snapshot.publicAccess === "ngrok"
-          ? requireSafeDashboardUrl(snapshot.endpoints.ngrokInspector, "ngrok-inspector") : null,
       },
       components: {
         n8n: snapshot.components.n8n,
@@ -2666,13 +2682,13 @@ function createSafeVpsLocalModelPlan(plan) {
     plan.temporaryBuildStatePath !== (plan.action === "remove" ? null : "/docker/n8n-openai-oauth/.local-model-operation.lock/buildx") ||
     (plan.action === "install"
       ? !exactObjectKeys(plan.sharedRootBootstrap, [
-          "directory", "markerPath", "mayCreateDirectory", "mayCreateMarker", "preservesExistingMode",
+          "directory", "markerPath", "mayCreateDirectory", "mayCreateMarker", "directoryMode",
         ]) ||
         plan.sharedRootBootstrap.directory !== "/docker/n8n-openai-oauth" ||
         plan.sharedRootBootstrap.markerPath !== "/docker/n8n-openai-oauth/.managed-by-relmio-root" ||
         plan.sharedRootBootstrap.mayCreateDirectory !== true ||
         plan.sharedRootBootstrap.mayCreateMarker !== true ||
-        plan.sharedRootBootstrap.preservesExistingMode !== true
+        plan.sharedRootBootstrap.directoryMode !== "0700"
       : plan.sharedRootBootstrap !== null) ||
     plan.endpoint !== LOCAL_N8N_MODEL_ENDPOINT ||
     plan.catalogRevision !== LOCAL_MODEL_CATALOG_REVISION ||
@@ -2706,7 +2722,7 @@ function createSafeVpsLocalModelPlan(plan) {
           markerPath: "/docker/n8n-openai-oauth/.managed-by-relmio-root",
           mayCreateDirectory: true,
           mayCreateMarker: true,
-          preservesExistingMode: true,
+          directoryMode: "0700",
         }
       : null,
     endpoint: LOCAL_N8N_MODEL_ENDPOINT,
@@ -2757,7 +2773,7 @@ function createSafeVpsClaudeStatus(status) {
   }
   if (state === "installed" && (!["amd64", "arm64"].includes(installation?.arch) || !validModels(installation.models) ||
     (installation.expiresAt !== null && !isoTime(installation.expiresAt)) || typeof installation.approvalExpired !== "boolean" ||
-    !["running", "stopped", "missing"].includes(installation.container) || installation.endpoint !== CLAUDE_COMPANION.endpoint)) {
+    !["running", "stopped", "missing", "restarting", "unhealthy"].includes(installation.container) || installation.endpoint !== CLAUDE_COMPANION.endpoint)) {
     throw vpsClaudeInvalid("status");
   }
   return {
@@ -2853,9 +2869,8 @@ function createSafeLocalN8nStackPlan(plan) {
     plan.managedPath !== "~/.relmio/local/n8n-stack" ||
     !Number.isInteger(plan.n8nPort) ||
     (plan.publicAccess === "ngrok"
-      ? !Number.isInteger(plan.ngrokInspectorPort) ||
-        !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z0-9.-]+$/u.test(plan.ngrokHostname ?? "")
-      : plan.ngrokInspectorPort !== null || plan.ngrokHostname !== null) ||
+      ? !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z0-9.-]+$/u.test(plan.ngrokHostname ?? "")
+      : plan.ngrokHostname !== null) ||
     !["disabled", "sandbox", "sandbox-with-searxng"].includes(plan.assistantMode) ||
     typeof plan.timezone !== "string"
   ) {
@@ -2865,7 +2880,7 @@ function createSafeLocalN8nStackPlan(plan) {
     kind: plan.kind, target: plan.target, label: plan.label,
     publicAccess: plan.publicAccess,
     ngrokHostname: plan.ngrokHostname, n8nPort: plan.n8nPort,
-    ngrokInspectorPort: plan.ngrokInspectorPort, timezone: plan.timezone,
+    timezone: plan.timezone,
     assistantMode: plan.assistantMode, localUrl: plan.localUrl,
     ngrokPublicUrl: plan.ngrokPublicUrl,
     n8nContainerName: null, networkName: null,
@@ -2881,9 +2896,7 @@ function createSafeLocalN8nStackInstallResult(result, plan) {
     result.localUrl !== plan.localUrl ||
     result.ngrokPublicUrl !== plan.ngrokPublicUrl ||
     result.assistantMode !== plan.assistantMode ||
-    result.hostPublication !== (plan.publicAccess === "ngrok"
-      ? `n8n http://127.0.0.1:${plan.n8nPort}; ngrok inspector http://127.0.0.1:${plan.ngrokInspectorPort}`
-      : `n8n http://127.0.0.1:${plan.n8nPort}`) ||
+    result.hostPublication !== `n8n http://127.0.0.1:${plan.n8nPort}` ||
     result.deploymentMode !== "new-disposable-stack" ||
     !/^relmio-local-n8n-[a-f0-9]{32}$/u.test(result.projectName ?? "") ||
     result.n8nContainerName !== `${result.projectName}-n8n-1` ||
@@ -3069,9 +3082,7 @@ function createSafeLocalN8nStackResumeResult(result) {
       { ...result, deploymentMode: "new-disposable-stack" },
       { publicAccess: result.publicAccess, localUrl: result.localUrl,
         ngrokPublicUrl: result.ngrokPublicUrl, assistantMode: result.assistantMode,
-        n8nPort: Number(new URL(result.localUrl).port),
-        ngrokInspectorPort: result.publicAccess === "ngrok"
-          ? Number(result.hostPublication.split(":").at(-1)) : null },
+        n8nPort: Number(new URL(result.localUrl).port) },
     ),
     resumed: true,
     deploymentMode: result.deploymentMode,
@@ -3698,6 +3709,25 @@ async function handleApi(request, response, path, state) {
     }
     if (!state.connectionIdentity) throw new Error("Reconnect to verify the VPS identity.");
     sendJson(response, 200, state.connectionIdentity);
+    return;
+  }
+  if (request.method === "GET" && path === "/api/ssh/host-report") {
+    // Built from the connection probe and the cached discovery; no remote call.
+    const connection = requireConnection(state);
+    if (!state.connectionIdentity) throw new Error("Reconnect to verify the VPS identity.");
+    const query = new URL(request.url, state.origin).searchParams;
+    const selection = ["container", "network"].map((key) => query.getAll(key));
+    if ([...query.keys()].some((key) => key !== "container" && key !== "network") ||
+        selection.some((values) => values.length > 1 ||
+          values.some((value) => value.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value)))) {
+      throw new Error("The host report selection is invalid.");
+    }
+    const [containerName = null, networkName = null] = selection.map((values) => values[0]);
+    sendJson(response, 200, buildVpsHostReport({
+      identity: state.connectionIdentity, host: connection.host ?? null, discovery: state.discovery,
+      networks: containerName === null ? undefined : state.networksByContainer.get(containerName),
+      containerName, networkName,
+    }));
     return;
   }
   if (credentialBearingVpsRoute(path)) {
@@ -4685,8 +4715,8 @@ async function handleApi(request, response, path, state) {
         [
           "target", "publicAccess", "n8nPort", "timezone", "assistantMode",
           ...(body.publicAccess === "ngrok"
-            ? ["ngrokHostname", "ngrokInspectorPort"]
-            : ["ngrokHostname", "ngrokInspectorPort"].filter(key => Object.hasOwn(body, key) && body[key] === null)),
+            ? ["ngrokHostname"]
+            : ["ngrokHostname"].filter(key => Object.hasOwn(body, key) && body[key] === null)),
         ],
         "The local n8n stack plan request is invalid.",
       );
@@ -4705,7 +4735,6 @@ async function handleApi(request, response, path, state) {
         publicAccess: body.publicAccess,
         ngrokHostname: body.ngrokHostname,
         n8nPort: body.n8nPort,
-        ngrokInspectorPort: body.ngrokInspectorPort,
         timezone: body.timezone,
         assistantMode: body.assistantMode,
       });
@@ -5349,7 +5378,11 @@ async function handleApi(request, response, path, state) {
     const action = path.split("/").at(-1);
     requireLiveLocalAction(state, "Local Claude change");
     enforceRateLimit(state, path);
-    requireExactRequestBody(body, action === "renew" ? ["confirmed", "review"] : ["confirmed"], "The local Claude action request is invalid.");
+    // Removal may carry keepLogin: true to leave the Claude sign-in volume for a later install.
+    const keepLoginSent = action === "remove" && Boolean(body) && typeof body === "object" && Object.hasOwn(body, "keepLogin");
+    requireExactRequestBody(body, action === "renew" ? ["confirmed", "review"] : keepLoginSent ? ["confirmed", "keepLogin"] : ["confirmed"],
+      "The local Claude action request is invalid.");
+    if (keepLoginSent && typeof body.keepLogin !== "boolean") throw new Error("The local Claude action request is invalid.");
     if (body.confirmed !== true) throw new Error("Confirm this local Claude action.");
     if (action === "renew") validateClaudeReview(body.review);
     if (state.localInstallInFlight || state.localCredentialRotationInFlight ||
@@ -5360,7 +5393,8 @@ async function handleApi(request, response, path, state) {
     state.localPlan = null;
     state.localInstalledTarget = null;
     try {
-      const result = await state.services.changeLocalN8nClaude({ action, confirmed: true, ...(action === "renew" ? { review: body.review } : {}) });
+      const result = await state.services.changeLocalN8nClaude({ action, confirmed: true, ...(action === "renew" ? { review: body.review } : {}),
+        ...(body.keepLogin === true ? { keepLogin: true } : {}) });
       requireCurrentLocalDashboardGeneration(state, generation);
       sendJson(response, 200, createSafeLocalN8nClaudeChangeResult(result, action));
     } finally { state.localInstallInFlight = false; }
@@ -5813,11 +5847,12 @@ async function handleApi(request, response, path, state) {
         requireExactRequestBody(body, ["containerName", "networkName", "installId"], "The model operation selection is invalid.");
         requireSafeDockerName(body.containerName, "n8n container name");
         requireSafeDockerName(body.networkName, "Docker network name");
-        const current = await state.services.inspectVpsLocalModel({ remote: connection, containerName: body.containerName, networkName: body.networkName });
+        // One inspection pass per download poll: the service checks the selection and the installation.
+        const result = await state.services.getVpsLocalModelOperationStatus({
+          remote: connection, installId: body.installId, containerName: body.containerName, networkName: body.networkName,
+        });
         requireUnchangedVpsSession(state, snapshot);
-        if (current.installId !== body.installId || !/^[a-f0-9-]{16,64}$/iu.test(body.installId)) throw new Error("The model operation identity changed. Inspect again.");
-        const result = await state.services.getVpsLocalModelOperationStatus({ remote: connection, installId: body.installId });
-        requireUnchangedVpsSession(state, snapshot);
+        if (result?.installId !== body.installId) throw new Error("The model operation identity changed. Inspect again.");
         sendJson(response, 200, createSafeVpsLocalModelStatus(result));
       } else sendJson(response, 404, { error: "Not found." });
     } finally {
@@ -6018,6 +6053,8 @@ async function handleApi(request, response, path, state) {
       credentialOperation = managing || inspecting ? null : acquireVpsCredentialOperation(state, "owner-status");
       const status = await state.services.getVpsSiwcInstallationStatus({
         remote: connection, networkName: body.networkName, reviewedTarget,
+        // A plain status check attested this n8n target a moment ago, in this request.
+        targetAttested: !managing && !inspecting,
       });
       if (!managing && !inspecting) {
         state.vpsOwnerTargetReview = { reviewedTarget, expiresAt: Date.now() + 5 * 60_000 };
@@ -6333,9 +6370,10 @@ async function handleApi(request, response, path, state) {
         containerName: body.containerName, networkName: body.networkName,
         ...await state.services.reviewVpsSiwcTarget({
           remote: connectionUse.connection, containerName: body.containerName, networkName: body.networkName,
+          requireSupportedNetwork: true,
         }) });
       const installed = await state.services.getVpsSiwcInstallationStatus({
-        remote: connectionUse.connection, networkName: body.networkName, reviewedTarget,
+        remote: connectionUse.connection, networkName: body.networkName, reviewedTarget, targetAttested: true,
       });
       let legacyBinding = null;
       let existingBinding = null;
@@ -6429,6 +6467,8 @@ async function handleApi(request, response, path, state) {
         body.networkName,
       );
       const instanceAi = requireEnabledInstanceAi(state, body.containerName);
+      requireAssistantNetworkSupport(state.networksByContainer.get(body.containerName), body.networkName, includeSearxng);
+      const warnings = assistantPlanWarnings(requireDiscoveredContainer(state, body.containerName));
       state.assistantPlan = null;
       invalidateSuperGrokPlan(state);
       invalidateClaudePlan(state);
@@ -6454,6 +6494,7 @@ async function handleApi(request, response, path, state) {
         existingN8nRestarts: 0,
         publishedPorts: [],
         privilegedRunner: true,
+        warnings,
         preview: true,
       });
     } finally {
@@ -6485,6 +6526,7 @@ async function handleApi(request, response, path, state) {
         body.containerName,
       );
       requireFreshAssistantInstallState(reviewedPlan, freshNetworks, body);
+      requireAssistantNetworkSupport(freshNetworks, body.networkName, includeSearxng);
       const result = await state.services.installAssistant({
         remote: connection,
         networkName: body.networkName,

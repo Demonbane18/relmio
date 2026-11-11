@@ -1,4 +1,4 @@
-import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindWizardNavigation, readWizardSession, wizardApiError } from "./session.js";
 import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField } from "./ssh-form.js";
 import { initWizardTopbar } from "./topbar.js";
 
@@ -31,7 +31,8 @@ const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 let sshIdentityDecision = 0;
 const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
-const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
+const hostReport = () => ({ flow: "assistant", container: element("container-select").value, network: element("network-select").value });
+const sshSession = createCredentialSshGuard({ token, hostReport, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   state.network = null;
   resetFingerprint();
@@ -537,7 +538,7 @@ async function api(path, { method = "GET", body } = {}) {
   } catch {
     throw new Error("The wizard returned an unreadable response. Start again.");
   }
-  if (!response.ok) throw new Error(result?.error ?? "The request failed.");
+  if (!response.ok) throw wizardApiError(result, response.status, "The request failed.");
   await sshSession.after(path, result);
   return result;
 }
@@ -566,6 +567,7 @@ function renderNetworks(result) {
     result.networks.map((network) => ({ value: network, label: network })),
     result.recommended,
   );
+  sshSession.refreshHostReport();
 }
 
 async function discover() {
@@ -574,15 +576,15 @@ async function discover() {
     !Array.isArray(discovery.containers) ||
     discovery.containers.length === 0
   ) {
-    throw new Error("No running official n8n container was found.");
+    // The server says what it looked for when it has that sentence.
+    throw new Error(typeof discovery.noneFoundMessage === "string" && discovery.noneFoundMessage.length <= 240
+      ? discovery.noneFoundMessage : "No running official n8n container was found.");
   }
   const networks = await loadNetworks(discovery.containers[0].name);
   return { discovery, networks };
 }
 
 function renderDiscovery({ discovery, networks }) {
-  element("docker-version").textContent = discovery.dockerVersion;
-  element("compose-version").textContent = discovery.composeVersion;
   fillSelect(
     element("container-select"),
     discovery.containers.map((container) => ({
@@ -618,6 +620,8 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     for (const id of ["host", "port"]) clearFieldError(element(id), "global-error-text");
     renderFingerprint(result.fingerprint);
     setMessage("Confirm the SSH host identity before authenticating.");
+    // As on the main setup page, a finished check hands focus to the confirmation.
+    if (document.activeElement === button) focusVisible(element("fingerprint-confirm"));
   } catch (error) {
     showError(error);
   }
@@ -699,6 +703,7 @@ element("container-select").addEventListener("change", async (event) => {
 
 element("network-select").addEventListener("change", () => {
   invalidateReviewedPlan();
+  sshSession.refreshHostReport();
   setMessage("Network changed. Review a fresh plan before installing.");
 });
 
@@ -729,6 +734,15 @@ element("review-button").addEventListener("click", async (event) => {
     element("review-web-search").textContent = plan.includeSearxng
       ? `Attach optional SearXNG web search to ${networkName} with its private alias`
       : "Web search is off. No SearXNG service, settings file, or URL will be installed.";
+    // Plain sentences from the server, such as an n8n that already runs its own sandbox.
+    const warnings = (Array.isArray(plan.warnings) ? plan.warnings : [])
+      .filter((text) => typeof text === "string" && text && text.length <= 240);
+    element("plan-warnings-list").replaceChildren(...warnings.map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    element("plan-warnings").hidden = warnings.length === 0;
     state.planId = planId;
     element("install-confirm").checked = false;
     element("install-button").disabled = true;

@@ -1,6 +1,6 @@
-import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindWizardNavigation, flashCopied, readWizardSession, whenVisible, wizardApiError } from "./session.js";
 import { initWizardTopbar } from "./topbar.js";
-import { bindSshAuthentication, clearFieldError, markRejectedField, readSshIdentity, sameSshIdentity, setFieldError, validateSshIdentity } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, clearHostReport, markRejectedField, readSshIdentity, sameSshIdentity, setFieldError, showHostReport, validateSshIdentity } from "./ssh-form.js";
 import { HOSTING_PROVIDERS, getHostingProvider } from "../domain/hosting-providers.js";
 
 const token = readWizardSession();
@@ -38,11 +38,14 @@ el("hosting-provider").addEventListener("change", () => {
 bindWizardNavigation(el("hosting-guide-link"), "/hosting", token);
 
 function message(text) { el("message").textContent = text; }
-function error(text) {
+// Shows a failure: an Error from a failed call or a plain sentence. Error help
+// gets the whole failure, so it can read its status and code.
+function error(failure) {
+  const text = typeof failure === "string" ? failure : failure?.message || "The operation failed.";
   el("error").textContent = markRejectedField(text, el, "error");
   el("error").hidden = false;
   el("error").focus();
-  globalThis.relmioGuide?.error?.({ message: text });
+  globalThis.relmioGuide?.error?.(typeof failure === "string" ? { message: failure } : failure);
 }
 function invalidate() {
   state.generation++;
@@ -89,6 +92,7 @@ function adoptConnectedIdentity(identity) {
   el("trust").checked = true;
   el("manual-recovery").hidden = true;
   syncTrust();
+  void showHostReport(token, hostReport());
 }
 
 async function verifyConnectedIdentity() {
@@ -131,6 +135,10 @@ function boundary() {
     ? { containerName: el("manual-container").value, networkName: el("manual-network").value }
     : { containerName: el("container").value, networkName: el("network").value };
 }
+function hostReport() {
+  const selected = boundary();
+  return { flow: "local-model", container: selected.containerName, network: selected.networkName };
+}
 function current(key, generation) {
   const selected = boundary();
   return generation === state.generation && key === `${selected.containerName}\0${selected.networkName}`;
@@ -143,12 +151,12 @@ async function api(path, body) {
   });
   const data = await response.json().catch(() => null);
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Unreadable wizard response. Reconnect and inspect again.");
-  if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The operation failed.");
+  if (!response.ok) throw wizardApiError(data, response.status, "The operation failed.");
   return data;
 }
 for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
   document.addEventListener(name, (event) => {
-    if (!state.busy || event.target?.closest?.(".rm-guide-layer") || (name === "keydown" && event.key === "Tab")) return;
+    if (!state.busy || event.target?.closest?.(".rm-guide-layer, [data-guide-help]") || (name === "keydown" && event.key === "Tab")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
@@ -156,6 +164,7 @@ for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "
 async function perform(label, task) {
   if (state.busy) return;
   state.busy = true;
+  const origin = document.activeElement;
   document.body.dataset.operationBusy = "true";
   el("error").hidden = true;
   el("progress").hidden = true;
@@ -164,7 +173,7 @@ async function perform(label, task) {
   el("message").scrollIntoView?.({ block: "nearest", behavior: "instant" });
   el("route-steps-content").setAttribute("aria-busy", "true");
   const controls = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")]
-    .filter((control) => !control.closest?.(".rm-guide-layer")).map((control) => ({
+    .filter((control) => !control.closest?.(".rm-guide-layer, [data-guide-help]")).map((control) => ({
     control, disabled: typeof control.disabled === "boolean" ? control.disabled : null,
     tabIndex: control.getAttribute("tabindex"),
   }));
@@ -172,7 +181,7 @@ async function perform(label, task) {
     if (disabled !== null) control.disabled = true;
     else control.setAttribute("tabindex", "-1");
   }
-  try { await task(); } catch (failure) { error(failure?.message || "The operation failed."); }
+  try { await task(); } catch (failure) { error(failure); }
   finally {
     state.busy = false;
     document.body.dataset.operationBusy = "false";
@@ -183,6 +192,10 @@ async function perform(label, task) {
       else control.setAttribute("tabindex", tabIndex);
     }
     syncTrust(); syncConfirm();
+    // Keyboard focus returns to the control that started this, unless an error or a new view took it.
+    if ([document.body, origin].includes(document.activeElement) && origin?.isConnected && !origin.disabled && origin.getClientRects().length) {
+      origin.focus({ preventScroll: true });
+    }
   }
 }
 function setOptions(select, values) {
@@ -238,6 +251,7 @@ async function refreshStatus() {
   invalidate();
   el("settings-panel").hidden = true;
   const selected = boundary();
+  void showHostReport(token, hostReport());
   if (!selected.networkName) return;
   const generation = state.generation;
   const key = `${selected.containerName}\0${selected.networkName}`;
@@ -254,6 +268,7 @@ async function loadNetworks() {
   const result = await api("/api/networks", { containerName });
   if (generation !== state.generation || containerName !== el("container").value || !Array.isArray(result.networks)) return;
   setOptions(el("network"), result.networks.map((name) => [name, name]));
+  if (result.networks.includes(result.recommended)) el("network").value = result.recommended;
   await refreshStatus();
 }
 async function discover() {
@@ -267,7 +282,8 @@ async function discover() {
   if (generation !== state.generation) return;
   if (!Array.isArray(result.containers)) throw new Error("The n8n discovery response is invalid.");
   if (result.containers.length === 0) {
-    const failure = new Error("No running n8n container found.");
+    const failure = new Error(typeof result.noneFoundMessage === "string" && result.noneFoundMessage.length <= 240
+      ? result.noneFoundMessage : "No running n8n container found.");
     failure.code = "NO_RUNNING_N8N";
     throw failure;
   }
@@ -295,12 +311,12 @@ function validPlan(plan, action) {
     plan.temporaryBuildStatePath !== (action === "remove" ? null : "/docker/n8n-openai-oauth/.local-model-operation.lock/buildx") ||
     (action === "install"
       ? !plan.sharedRootBootstrap ||
-        Object.keys(plan.sharedRootBootstrap).sort().join(",") !== "directory,markerPath,mayCreateDirectory,mayCreateMarker,preservesExistingMode" ||
+        Object.keys(plan.sharedRootBootstrap).sort().join(",") !== "directory,directoryMode,markerPath,mayCreateDirectory,mayCreateMarker" ||
         plan.sharedRootBootstrap.directory !== "/docker/n8n-openai-oauth" ||
         plan.sharedRootBootstrap.markerPath !== "/docker/n8n-openai-oauth/.managed-by-relmio-root" ||
         plan.sharedRootBootstrap.mayCreateDirectory !== true ||
         plan.sharedRootBootstrap.mayCreateMarker !== true ||
-        plan.sharedRootBootstrap.preservesExistingMode !== true
+        plan.sharedRootBootstrap.directoryMode !== "0700"
       : plan.sharedRootBootstrap !== null) ||
     !Array.isArray(plan.publishedPorts) || plan.publishedPorts.length !== 0 ||
     !Array.isArray(plan.existingN8nChanges) || plan.existingN8nChanges.length !== 0 ||
@@ -324,7 +340,7 @@ async function review(action) {
   state.plan = plan;
   el("review-action").textContent = action === "remove" ? "Permanently remove the owned runtime and model cache" : action === "retry" ? "Retry the same selected model" : "Install runtime and download selected model";
   el("review-action").textContent += action === "install"
-    ? `; may create ${plan.sharedRootBootstrap.directory} and ${plan.sharedRootBootstrap.markerPath}, keeping an existing parent's mode.`
+    ? `; may create ${plan.sharedRootBootstrap.directory} and ${plan.sharedRootBootstrap.markerPath}, and sets that folder to mode ${plan.sharedRootBootstrap.directoryMode} (root only).`
     : "; no shared-root creation.";
   // Lock, build, measurement, digest and runtime facts sit behind "Technical
   // details" so the review fits one screen (DESIGN.md); every fact stays on the
@@ -346,7 +362,7 @@ async function review(action) {
   syncConfirm();
 }
 async function applyReview() {
-  try { requireConnectedIdentity(); } catch (failure) { error(failure.message); return; }
+  try { requireConnectedIdentity(); } catch (failure) { error(failure); return; }
   const plan = state.plan;
   if (!plan || !el("confirm").checked || (plan.action === "remove" && !el("cache-confirm").checked)) return;
   const selected = boundary();
@@ -359,12 +375,23 @@ async function applyReview() {
     message("Action applied. Refresh or reopen the wizard at any time to inspect progress.");
   });
 }
+// The bar is determinate once both byte counts are known.
+function showDownloadProgress(completed, total) {
+  const known = Number.isSafeInteger(completed) && Number.isSafeInteger(total) && completed >= 0 && total > 0;
+  const ratio = known ? Math.min(1, completed / total) : 0;
+  const bar = el("progress-bar");
+  bar.classList.toggle("rm-progress--indeterminate", !known);
+  if (known) bar.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+  else bar.removeAttribute("aria-valuenow");
+  bar.firstElementChild.style.setProperty("--rm-progress", String(ratio));
+}
 function schedulePoll() {
   clearTimeout(state.timer);
   const generation = state.generation;
   const selected = boundary();
   const key = `${selected.containerName}\0${selected.networkName}`;
-  state.timer = setTimeout(async () => {
+  // A hidden tab waits and checks once when it is shown again.
+  state.timer = setTimeout(() => whenVisible(async () => {
     if (state.busy || !current(key, generation)) return;
     if (!connectedIdentityMatches()) {
       invalidate();
@@ -384,11 +411,12 @@ function schedulePoll() {
       if (!progress || !["downloading", "verifying", "model-ready", "model-error", "partial"].includes(progress.state)) throw new Error("Operation progress is invalid.");
       const wasHidden = el("progress").hidden;
       el("progress").hidden = false;
-      el("progress").textContent = `${progress.phase}: ${formatBytes(progress.completedBytes)} of ${formatBytes(progress.totalBytes)} transferred. No ETA is available.`;
+      el("progress-text").textContent = `${progress.phase}: ${formatBytes(progress.completedBytes)} of ${formatBytes(progress.totalBytes)} transferred. No ETA is available.`;
+      showDownloadProgress(progress.completedBytes, progress.totalBytes);
       if (wasHidden) el("progress").scrollIntoView?.({ block: "nearest", behavior: "instant" });
       schedulePoll();
-    } catch (failure) { error(failure?.message ?? "Progress inspection failed. Refresh status."); }
-  }, 2500);
+    } catch (failure) { error(failure?.message ? failure : "Progress inspection failed. Refresh status."); }
+  }), 2500);
 }
 
 el("scan").addEventListener("click", () => {
@@ -409,6 +437,9 @@ el("scan").addEventListener("click", () => {
     el("fingerprint").textContent = result.fingerprint;
     el("fingerprint-box").hidden = false;
     message("Check the server identity before you connect.");
+  }).then(() => {
+    // As on the main setup page, a finished check hands focus to the confirmation.
+    if (state.fingerprint && document.activeElement === el("scan")) el("trust").focus();
   });
 });
 el("trust").addEventListener("change", () => { invalidate(); syncTrust(); });
@@ -443,7 +474,7 @@ el("ssh-form").addEventListener("submit", (event) => { event.preventDefault(); i
   } catch (failure) {
     if (failure?.code !== "NO_RUNNING_N8N") throw failure;
     el("manual-recovery").hidden = false;
-    message("Connected; no running n8n container was found. Inspect an existing owned model for reviewed removal using its original exact names.");
+    message(`${failure.message} Inspect an existing owned model for reviewed removal using its original exact names.`);
   }
 }); });
 el("container").addEventListener("change", () => { void perform("Inspecting selected n8nâ€¦", loadNetworks); });
@@ -479,6 +510,7 @@ el("disconnect").addEventListener("click", () => { void perform("Disconnectingâ€
   invalidate(); await api("/api/disconnect", {}); el("selection-panel").hidden = true; el("settings-panel").hidden = true; el("manual-recovery").hidden = true;
   state.connectedIdentity = null; state.fingerprint = null; el("trust").checked = false; el("fingerprint-box").hidden = true;
   el("ssh-session").textContent = "No authenticated VPS session."; el("ssh-disconnect").hidden = true;
+  clearHostReport();
   state.status = null; message("Disconnected. The owned model remains on your server.");
 }); });
 async function copyText(text, button) {
@@ -503,10 +535,12 @@ async function copyText(text, button) {
 for (const [id, targetId] of [["copy-url", "base-url"], ["copy-model", "selected-model"], ["copy-key", "placeholder-key"]]) {
   el(id).addEventListener("click", async (event) => {
     if (state.busy) return;
+    const button = event.currentTarget;
     const text = el(targetId).textContent;
     if (!text) return;
     try {
-      await copyText(text, event.currentTarget);
+      await copyText(text, button);
+      flashCopied(button);
       message("Copied to clipboard.");
     } catch {
       error("Clipboard unavailable; select and copy the text manually.");
@@ -587,7 +621,7 @@ if (!token) {
         message("Check the server identity to begin.");
       } else if (failure?.code === "NO_RUNNING_N8N") {
         el("manual-recovery").hidden = false;
-        message("No running n8n container was found. Inspect an existing owned model for reviewed removal using its original exact names.");
+        message(`${failure.message} Inspect an existing owned model for reviewed removal using its original exact names.`);
       } else {
         el("selection-panel").hidden = true;
         el("settings-panel").hidden = true;

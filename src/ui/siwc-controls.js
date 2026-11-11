@@ -42,6 +42,9 @@ export function siwcErrorFromResponse(result, status) {
   if (typeof result?.registrationId === "string" &&
       /^[A-Za-z0-9_-]{8,128}$/u.test(result.registrationId)) error.registrationId = result.registrationId;
   if (result?.upstream && typeof result.upstream === "object") error.upstream = result.upstream;
+  for (const flag of ["remoteOutcomeUnknown", "retryBlocked"]) {
+    if (result?.[flag] === true) error[flag] = true;
+  }
   return error;
 }
 

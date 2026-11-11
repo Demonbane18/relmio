@@ -30,9 +30,13 @@ available for Docker as the advanced path.
 ## Requirements
 
 - Relmio 0.24.0 or newer for the browser wizard (0.23.0 is enough for the
-  commands alone) and Node.js 24 or newer, on macOS or Linux. Relmio refuses
-  the `relmio claude` commands, including `relmio claude companion login`, on
-  other systems.
+  commands alone) and Node.js 24 or newer. The browser wizard's VPS route,
+  including **Claude on my server**, and **Hosting options** are not limited
+  to macOS and Linux. The Claude companion on this computer, and the
+  `relmio claude` commands including `relmio claude companion login`, run on
+  macOS or Linux only. Relmio refuses those commands on other systems. The
+  companion on this computer is unavailable on native Windows. The VPS Claude
+  page is untested on Windows.
 - Claude Code 2.1.317 exactly, from Anthropic. For native n8n you install it
   yourself with Anthropic's
   [installer for a specific version](https://code.claude.com/docs/en/setup#install-a-specific-version).
@@ -138,7 +142,10 @@ are not supported on the VPS.
    `<host>` is your server address. The username is the account you verified,
    and `-p <port>` appears only when the SSH port is not 22. Follow Claude
    Code's sign-in there, paste the code in that terminal and check the `state`
-   as in the command-line steps. The script needs `python3` on the server.
+   as in the command-line steps. A companion installed or replaced by this
+   version formats that status with Node inside the companion, so the server
+   needs `sh` and `docker`, not `python3`. A `login.sh` left by an older
+   install still needs `python3` until you replace or reinstall it.
 8. In the wizard, choose **Check sign-in**. It is ready when it shows
    `loggedIn: true` and `authMethod: "claude.ai"`.
 9. Create the credential in n8n as described in
@@ -177,11 +184,13 @@ native Windows. Native n8n uses the command-line setup.
 2. Enter the model IDs (one to eight, separated by commas; the three 5.5 models
    by default; Fable is refused), then pick the n8n container and its Docker
    network.
-3. Review the plan. It shows Claude Code 2.1.317, the architecture that
-   `docker info` reports and the official SHA256. Answer the four review
-   questions (unchecked at first) and confirm the plan. Relmio builds
-   `relmio-claude` in `~/.relmio/local/n8n-claude-oauth`, joins n8n's network
-   and publishes no port. It does not restart n8n.
+3. Review Claude use, then the plan. The first stage shows Claude Code
+   2.1.317, the architecture that `docker info` reports, the official SHA256
+   and the four review questions. The questions start unchecked. Continue
+   only after all four are checked. The plan then lists the models, Claude
+   Code version and SHA256, and waits for a separate final confirmation.
+   Relmio builds `relmio-claude` in `~/.relmio/local/n8n-claude-oauth`, joins
+   n8n's network and publishes no port. It does not restart n8n.
 4. Copy the one-time n8n key. For an n8n that Relmio created, it also tries to
    add an OpenAI credential named **Relmio Claude**. For any other n8n you
    enter the key yourself.
@@ -205,8 +214,19 @@ native Windows. Native n8n uses the command-line setup.
    saved key. As on a VPS, neither proves model access.
 
 The management panel offers **Renew approval** (four questions again),
-**Sign out** and **Remove Claude**. Removal deletes the companion, its login
-volume, its image and its managed files. n8n and its network stay.
+**Sign out** and **Remove Claude**. **Manage Claude** also shows the
+companion's runtime: Running, Starting, Restarting, Unhealthy or Stopped.
+**Starting. The first check takes about a minute.** is normal after an
+install, a renewal or a Docker restart. The row is Healthy only when the
+runtime is running and approval is still current. Restarting or Unhealthy
+points at `docker logs relmio-claude` and, when the logs show
+`account_locked`, at
+[Shutdown and account-lock recovery](claude-native-prompt.md#shutdown-and-account-lock-recovery).
+Relmio does not clear that lock. Removal deletes the companion, its image
+and its managed files. n8n and its network stay. **Keep my Claude sign-in
+for a reinstall** is off until you tick it. Ticked, removal leaves the login
+volume, including any account lock in it. Keeping the sign-in does not clear
+the lock, and adding the companion again with that volume still does not.
 
 Only one companion named `relmio-claude` can exist on a Docker host. The local
 wizard does not take over a companion made with the commands: it stops and asks
@@ -315,8 +335,10 @@ its port or put it behind ngrok, a tunnel or a public proxy.
    The VPS wizard lists a companion placed here as a manual installation.
    **Replace companion and key** can take it over and keeps its Claude login.
 
-3. In that folder on the Docker host, as root or a Docker administrator,
-   build, start and sign in:
+3. In that folder on the Docker host, as root, build, start and sign in.
+   A non-root Docker administrator cannot open the new mode-`0700` parent
+   `/docker/n8n-openai-oauth` without becoming root. `sudo` does not unlock
+   the wizard's root-only Claude route.
 
    ```sh
    chown 10001:10001 launch.json

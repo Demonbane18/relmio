@@ -16,7 +16,7 @@ async function fixture(t) {
   t.after(() => fileSystem.rm(homeDirectory, { recursive: true, force: true }));
   const marker = createLocalN8nStackInstallation({
     plan: createLocalN8nStackPlan({ dockerHost, publicAccess: "none", ngrokHostname: null,
-      n8nPort: 5678, ngrokInspectorPort: null, timezone: "Asia/Manila", assistantMode: "disabled" }),
+      n8nPort: 5678, timezone: "Asia/Manila", assistantMode: "disabled" }),
     randomBytes: length => Buffer.alloc(length, 17),
   }).marker;
   const root = join(homeDirectory, ".relmio", "local", "n8n-stack");

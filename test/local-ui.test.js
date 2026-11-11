@@ -6,6 +6,7 @@ import { clearFieldError, setFieldError } from "../src/ui/ssh-form.js";
 import { siwcAccount } from "./helpers/siwc-wizard.js";
 import { accountUiState, prepareSiwcBrowser, siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
 import { createDeviceCodeControls } from "../src/ui/device-code.js";
+import { formatLocalDateTime } from "../src/ui/time.js";
 
 
 
@@ -172,13 +173,15 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   const window = { addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" }, matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; } };
   const fetch = async (path) => ({ ok: true, async json() { return path === "/api/local/dashboard" ? fixture : path === "/api/local/project-meta" ? { version: "0.13.0", stars: null } : {}; } });
   runInNewContext(`${shared}\n${script}`, { readWizardSession: () => "a".repeat(43), bindWizardNavigation() {}, initWizardTopbar() {},
-    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}), createDeviceCodeControls,
+    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}), createDeviceCodeControls, formatLocalDateTime,
     Option: class { constructor(text, value) { this.textContent = text; this.value = value; } },
     URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearFieldError, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch, navigator: {}, setFieldError, setTimeout() { return 1; }, window }, { filename: "local-healthy-dashboard.vm.js", timeout: 1_000 });
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(element("dashboard-runtime-health").textContent, "Healthy");
-  assert.equal(element("dashboard-provider-readiness").textContent, "Provider-managed · not inspected");
+  // The Overview names what is installed instead of a constant provider line.
+  assert.equal(element("dashboard-installed").textContent, "4 connections installed");
+  assert.equal(element("dashboard-installed-names").textContent, "Codex (ChatGPT plan), Codex Chat adapter, SuperGrok, SuperGrok for n8n");
   assert.notEqual(element("dashboard-last-checked").textContent, "Unavailable");
 });
 
@@ -739,4 +742,23 @@ test("Codex targets use independently scoped SIWC browser authorization without 
     assert.equal(harness.opened.length, 1);
     assert.equal(harness.errors.length, 0);
   }
+});
+
+test("local API errors keep the unknown-outcome and retry-blocked flags for error help", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const api = runInNewContext(`${extractBetween(script, "async function api(path", "\nconst siwc = createSiwcControls")}; api;`, {
+    token: "a".repeat(43), siwcErrorFromResponse, JSON,
+    fetch: async () => ({ ok: false, status: 504, json: async () => ({
+      error: "The server command timed out.", remoteOutcomeUnknown: true, retryBlocked: true,
+    }) }),
+  });
+  await assert.rejects(api("/api/local/install", { method: "POST", body: {} }), (error) => {
+    assert.equal(error.message, "The server command timed out.");
+    assert.equal(error.status, 504);
+    // Error help reads these flags: an unknown result must not be retried blindly.
+    assert.equal(error.remoteOutcomeUnknown, true);
+    assert.equal(error.retryBlocked, true);
+    assert.equal(error.oauthRetryBlocked, true);
+    return true;
+  });
 });

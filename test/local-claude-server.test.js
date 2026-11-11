@@ -23,10 +23,11 @@ async function fixture(t) {
     importLocalStackN8nCredential: async input => { calls.push(["credential", input]); return { state: "created", name: "Relmio Claude" }; },
     getLocalN8nClaudeStatus: async () => ({ target, managed: true, state: "healthy", providerToken: "must-not-leak",
       snapshot: { target, endpoint, auth: { configured: true, disclosure: "one-time", token: "must-not-leak" },
-        models: ["claude-sonnet-5-5"], expiresAt, approvalExpired: false, canRemove: true, key: "must-not-leak" } }),
+        models: ["claude-sonnet-5-5"], expiresAt, approvalExpired: false, canRemove: true, runtime: "running", key: "must-not-leak" } }),
     getLocalN8nClaudeAuthStatus: async () => ({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro", email: "must-not-leak" }),
     discoverLocalN8nClaudeModels: async () => ({ models: ["claude-sonnet-5-5"], token: "must-not-leak" }),
-    changeLocalN8nClaude: async input => { calls.push(["change", input]); return { target, ...(input.action === "remove" ? { removed: true } : { changed: true }),
+    changeLocalN8nClaude: async input => { calls.push(["change", input]); return { target,
+      ...(input.action === "remove" ? { removed: true, loginKept: input.keepLogin === true } : { changed: true }),
       ...(input.action === "renew" ? { expiresAt } : {}), providerToken: "must-not-leak" }; },
   } });
   t.after(() => wizard.close());
@@ -78,6 +79,26 @@ test("Claude status, filtered sign-in and separately confirmed lifecycle routes 
     assert.equal(response.status, 200);
     assert.equal((await response.text()).includes("must-not-leak"), false);
   }
+});
+
+test("Claude status carries the runtime, and removal keeps the sign-in only on an explicit boolean request", async t => {
+  const f = await fixture(t);
+  const status = await (await fetch(`${f.wizard.origin}/api/local/claude/status`, { headers: { "X-Setup-Token": token } })).json();
+  assert.deepEqual(status.snapshot, { target, endpoint, auth: { configured: true, disclosure: "one-time" }, canRemove: true,
+    models: ["claude-sonnet-5-5"], expiresAt, approvalExpired: false, runtime: "running" });
+  for (const body of [{ confirmed: true, keepLogin: "true" }, { confirmed: true, keepLogin: 1 }, { confirmed: true, keepLogin: true, extra: true }]) {
+    assert.equal((await f.post("/api/local/claude/remove", body)).status, 400);
+  }
+  for (const action of ["renew", "sign-out"]) {
+    assert.equal((await f.post(`/api/local/claude/${action}`, { confirmed: true, keepLogin: true, ...(action === "renew" ? { review } : {}) })).status, 400);
+  }
+  assert.equal(f.calls.some(([kind]) => kind === "change"), false);
+  const kept = await f.post("/api/local/claude/remove", { confirmed: true, keepLogin: true });
+  assert.deepEqual(await kept.json(), { target, removed: true, loginKept: true });
+  assert.deepEqual(f.calls.at(-1), ["change", { action: "remove", confirmed: true, keepLogin: true }]);
+  const full = await f.post("/api/local/claude/remove", { confirmed: true, keepLogin: false });
+  assert.deepEqual(await full.json(), { target, removed: true, loginKept: false });
+  assert.deepEqual(f.calls.at(-1), ["change", { action: "remove", confirmed: true }]);
 });
 
 test("Claude on Windows: Docker status flags the unavailable card and the plan is refused before any install", async t => {

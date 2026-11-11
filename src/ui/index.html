@@ -333,6 +333,7 @@
                     </div>
                     <div class="setup-signin-notes">
                       <p id="ssh-session" class="setup-session" role="status"></p>
+                      <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
                       <details class="rm-disclosure rm-disclosure--plain">
                         <summary>More details about SSH sign-in</summary>
                         <div class="rm-disclosure__body">
@@ -359,12 +360,8 @@
                 <div class="setup-n8n-fields">
                   <div class="rm-field">
                     <label class="rm-field__label" for="container-select">Your n8n</label>
-                    <select id="container-select" class="rm-select" aria-describedby="docker-versions"></select>
-                    <p id="docker-versions" class="rm-field__hint">
-                      Detected Docker <strong id="docker-version">Not detected</strong>,
-                      Compose <strong id="compose-version">Not detected</strong>.
-                    </p>
-                    <details class="rm-disclosure rm-disclosure--plain setup-n8n-details">
+                    <select id="container-select" class="rm-select"></select>
+                    <details class="rm-disclosure rm-disclosure--plain setup-n8n-details" data-host-report>
                       <summary>More details about the server check</summary>
                       <div class="rm-disclosure__body"><p>Relmio uses read-only Docker commands here. It does not run commands inside n8n, change its image, or restart its container.</p></div>
                     </details>
@@ -571,6 +568,10 @@
                     <dd><code id="review-endpoint">n8n-openai-oauth</code></dd>
                   </div>
                 </dl>
+                <div id="review-warnings" class="rm-callout rm-callout--warning" role="note" aria-label="Plan warnings" hidden>
+                  <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+                  <ul id="review-warnings-list" class="rm-callout__content setup-warnings"></ul>
+                </div>
 
                 <div class="setup-review-lists">
                   <section aria-labelledby="will-title">

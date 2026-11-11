@@ -146,6 +146,46 @@ test("release metadata rejects every mismatched version source", () => {
   );
 });
 
+const stableVersionSources = {
+  "README.md": "Relmio 0.1.5 is the current stable release.\n\n`@latest` selects stable 0.1.5, including the setup guide.\nThe sidecar asks as the newest stable Codex release on npm.\n",
+  "npm/README.md": "This command selects stable\nRelmio 0.1.5, including the setup guide.\n",
+  "web/app/project-version.ts": 'export const preparedReleaseVersion = "0.1.5";\n',
+};
+
+test("a stable release must match the stable version named in both READMEs and the website", () => {
+  const validate = (overrides = {}, options = {}) => validateReleaseMetadata({
+    packageJson, packageLock, changelog, requireStableVersionSources: true,
+    stableVersionSources: { ...stableVersionSources, ...overrides }, ...options,
+  });
+  assert.deepEqual(validate(), { version: "0.1.5" });
+  for (const [file, contents, message] of [
+    ["README.md", stableVersionSources["README.md"].replace("selects stable 0.1.5", "selects stable 0.1.4"),
+      /README\.md names stable version 0\.1\.4 instead of 0\.1\.5/u],
+    ["README.md", stableVersionSources["README.md"].replace("Relmio 0.1.5 is", "Relmio 0.1.4 is"),
+      /README\.md names stable version 0\.1\.4 instead of 0\.1\.5/u],
+    ["npm/README.md", "This command selects stable Relmio 0.1.4.\n", /npm\/README\.md names stable version 0\.1\.4 instead of 0\.1\.5/u],
+    ["npm/README.md", "This command selects stable Relmio 0.1.5-experimental.1.\n", /npm\/README\.md names stable version 0\.1\.5-experimental\.1/u],
+    ["npm/README.md", "Hosted installers use the same stable default.\n", /npm\/README\.md does not name stable version 0\.1\.5/u],
+    ["web/app/project-version.ts", 'export const preparedReleaseVersion = "0.1.4";\n',
+      /web\/app\/project-version\.ts names stable version 0\.1\.4 instead of 0\.1\.5/u],
+    ["web/app/project-version.ts", undefined, /web\/app\/project-version\.ts is missing/u],
+  ]) {
+    assert.throws(() => validate({ [file]: contents }), message);
+  }
+  // A packed install has no npm/README.md or website: only the sources that exist are compared.
+  assert.deepEqual(validate({ "npm/README.md": undefined, "web/app/project-version.ts": undefined },
+    { requireStableVersionSources: false }), { version: "0.1.5" });
+  assert.throws(() => validate({ "README.md": "`@latest` selects stable 0.1.4.\n", "npm/README.md": undefined },
+    { requireStableVersionSources: false }), /README\.md names stable version 0\.1\.4/u);
+  // A prerelease keeps naming the last stable release everywhere.
+  const version = "0.2.0-experimental.1";
+  assert.deepEqual(validate({}, {
+    packageJson: { ...packageJson, version },
+    packageLock: { ...packageLock, version, packages: { "": { ...packageLock.packages[""], version } } },
+    changelog: changelog.replaceAll("0.1.5", version),
+  }), { version });
+});
+
 test("npm release channel requires an exact tag and matching GitHub prerelease flag", () => {
   assert.equal(
     npmReleaseTag({ version: "0.17.5", tag: "v0.17.5", prerelease: false }),
@@ -317,4 +357,33 @@ test("release metadata CLI validates the GitHub release tag environment", async 
       return true;
     },
   );
+});
+
+test("release metadata CLI compares the READMEs and the website version in a Git checkout", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "release-metadata-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await Promise.all([".git", "npm", join("web", "app")].map((path) => mkdir(join(directory, path), { recursive: true })));
+  const write = (file, contents) => writeFile(join(directory, file), contents);
+  await Promise.all([
+    write("package.json", JSON.stringify(packageJson)),
+    write("package-lock.json", JSON.stringify(packageLock)),
+    write("CHANGELOG.md", changelog),
+    ...Object.entries(stableVersionSources).map(([file, contents]) => write(file, contents)),
+  ]);
+  const check = () => execFileAsync(process.execPath, [releaseCheckPath], { cwd: directory, env: releaseCheckEnvironment() });
+
+  assert.match((await check()).stdout, /Release metadata is synchronized at v0\.1\.5\./u);
+  for (const [file, stale, message] of [
+    ["README.md", "`@latest` selects stable 0.1.4.\n", /README\.md names stable version 0\.1\.4 instead of 0\.1\.5\./u],
+    ["web/app/project-version.ts", 'export const preparedReleaseVersion = "0.1.4";\n',
+      /web\/app\/project-version\.ts names stable version 0\.1\.4 instead of 0\.1\.5\./u],
+  ]) {
+    await write(file, stale);
+    await assert.rejects(check(), (error) => {
+      assert.match(error.stderr, message);
+      return true;
+    });
+    await write(file, stableVersionSources[file]);
+  }
+  assert.match((await check()).stdout, /Release metadata is synchronized at v0\.1\.5\./u);
 });

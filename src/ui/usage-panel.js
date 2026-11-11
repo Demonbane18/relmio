@@ -149,7 +149,8 @@ function modelList(label, models, scale, format) {
     const track = decoration("rm-progress usage-panel__bar");
     const bar = node("span", "rm-progress__bar");
     // Decoration sized against the busiest model; the text beside it carries the values.
-    bar.style.setProperty("--rm-progress", `${Math.max(2, Math.round((scale.of(model) / scale.max) * 100))}%`);
+    // The kit scales the bar by a ratio from 0 to 1; a model without tokens keeps a visible stub.
+    bar.style.setProperty("--rm-progress", String(Math.max(2, Math.round((scale.of(model) / scale.max) * 100)) / 100));
     track.append(bar);
     const item = node("li", "usage-panel__model");
     item.append(model.id === "other" ? node("span", "usage-panel__model-name", "Other models")

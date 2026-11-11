@@ -10,11 +10,17 @@ import styles from "./docs.module.css";
 
 type DocumentationEntry = (typeof documentationPages)[number];
 
+/** The short summary a guide sets in generate-docs.mjs, or the start of its
+    first paragraph. The index cards and the meta description use it. */
+export function pageSummary(page: DocumentationEntry) {
+  return "summary" in page ? page.summary : guideSummary(page.content);
+}
+
 const guides: GuideEntry[] = documentationPages.map((page, index) => ({
   slug: page.slug,
   title: page.title,
   status: "status" in page ? page.status : undefined,
-  summary: guideSummary(page.content),
+  summary: pageSummary(page),
   number: String(index + 1).padStart(2, "0"),
 }));
 

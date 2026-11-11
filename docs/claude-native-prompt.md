@@ -6,7 +6,7 @@ This began as an npm-packaged CLI experiment, separate from existing ChatGPT/Sup
 
 ## Requirements and disclaimer
 
-- Node.js 24 or newer on macOS or Linux. Native Windows serving is not supported. A Docker target needs Linux `amd64` or `arm64`, Docker/Compose and an existing trusted n8n Docker network.
+- Node.js 24 or newer. The `relmio claude` commands, including native serving and `relmio claude companion login`, run on macOS or Linux only. Native Windows serving is not supported. The browser wizard's VPS route and **Hosting options** are not limited to those systems; the VPS Claude page is untested on Windows. A Docker target needs Linux `amd64` or `arm64`, Docker/Compose and an existing trusted n8n Docker network.
 - The official Claude Code executable, pinned to `2.1.317`, installed and logged in by you. Qualify its provenance, SHA256, effective policy, dedicated authentication, exact models and billing before inference. A newer binary needs fresh qualification and adapter compatibility review.
 
 > [!WARNING]
@@ -237,7 +237,7 @@ sh login.sh
 
 A shell `RELMIO_PLATFORM` overrides `.env`; unset it and confirm `docker compose config` shows the platform chosen with `--arch`. A mismatched image fails the launcher's binary pin check (`binary_pin_mismatch`) instead of running.
 
-Build traffic reaches the Node registry, Debian mirrors and Anthropic binary host. Login runs the pinned official executable inside the companion using `/home/claude`, `USER=claude`, `LOGNAME=claude`, `CLAUDE_CONFIG_DIR=/data/account/config` and empty cwd. The script needs an interactive terminal and host `python3` for its status summary. Complete your own official login, then require `loggedIn: true`, `authMethod: "claude.ai"` and the reviewed plan before inference.
+Build traffic reaches the Node registry, Debian mirrors and Anthropic binary host. Login runs the pinned official executable inside the companion using `/home/claude`, `USER=claude`, `LOGNAME=claude`, `CLAUDE_CONFIG_DIR=/data/account/config` and empty cwd. The script needs an interactive terminal. A bundle prepared or replaced by this Relmio version prints the status summary with Node inside the companion, so the host needs `sh` and `docker`, not `python3`. An older `login.sh` already on the host still needs `python3` until that bundle is replaced. Complete your own official login, then require `loggedIn: true`, `authMethod: "claude.ai"` and the reviewed plan before inference.
 
 On Linux, native stores its login in a protected file under the companion volume, not macOS Keychain. Host root, Docker administrators, volume access and backups can expose it. Relmio does not copy/export it; native still handles provider auth/refresh.
 
@@ -261,7 +261,7 @@ Ownership: a wizard install writes `.managed-by-relmio.json` into the companion 
 
 A VPS folder without a marker but with a `relmio-claude` container labeled `com.relmio.managed=claude-companion` counts as a manual installation made with the CLI. The only action allowed on it is **Replace companion and key**, which keeps the login volume and issues a new key. The local wizard does not take over a manual companion; it refuses and asks you to remove it first.
 
-Renewal needs all four review answers again. On a VPS it replaces `launch.json` the way `renew.sh` does (exclusive `launch.json.next`, owner `10001:10001`, mode `0600`, one link, sync, atomic rename) and restarts only `relmio-claude`. Locally it rewrites `launch.json` and restarts only that container. Sign-out runs `auth logout` inside the companion and checks status afterward. VPS removal deletes the container, the `relmio-claude_claude-account` login volume and the exact bundle files. Local removal runs `docker compose down --volumes`, removes the owned image and the managed files. Unlike `docker compose down` above, wizard removal deletes the login volume. It never touches n8n or its network.
+Renewal needs all four review answers again. On a VPS it replaces `launch.json` the way `renew.sh` does (exclusive `launch.json.next`, owner `10001:10001`, mode `0600`, one link, sync, atomic rename) and restarts only `relmio-claude`. Locally it rewrites `launch.json` and restarts only that container. Sign-out runs `auth logout` inside the companion and checks status afterward. VPS removal deletes the container, the `relmio-claude_claude-account` login volume and the exact bundle files. Local removal runs `docker compose down --volumes`, removes the owned image and the managed files, unless you tick **Keep my Claude sign-in for a reinstall**. That option leaves the login volume, including any account lock in it. It is retention, not lock recovery. Unlike `docker compose down` above, wizard removal without that option deletes the login volume. It never touches n8n or its network. Replacing the companion while keeping the login also keeps the lock. Relmio does not clear `.relmio-claude.lock` automatically.
 
 ## Text API and streaming contract
 
@@ -344,7 +344,15 @@ Launcher refusal codes include `launch_config_invalid`, `runtime_unqualified`, `
 
 Use Ctrl-C/SIGINT or SIGTERM for foreground serving. Shutdown cancels only owned work and releases the account-root lock after confirmed cleanup. It never scans/kills unrelated native sessions. Uncertain cleanup poisons the adapter, keeps later requests busy and retains the lock.
 
-Hard kills, OOM or crashes can leave `.relmio-claude.lock`. The launcher never steals a stale-looking claim. For a companion restart loop, stop only `relmio-claude` first. Establish that no process/runtime still uses that account volume before manually removing only its inspected lock. Container PID reuse means an absent host PID is not sufficient proof. If cleanup is uncertain, leave the service stopped and lock intact. Do not erase config/login data to bypass the lock.
+A crash, an out-of-memory kill or an unclean reboot can leave `.relmio-claude.lock` in the persistent login volume. The launcher fails closed with `account_locked` and never steals a stale-looking claim. The companion can then restart in a loop. Companions from 0.23.0 and 0.24.0 can show this. Relmio does not delete or bypass the lock. Removing or replacing the companion while keeping the Claude sign-in keeps the volume, so the lock stays too.
+
+Recover only after you have stopped every container and process that uses that account, and confirmed none is still running:
+
+1. For a companion restart loop, stop `relmio-claude` first. Then stop every other container and process that uses the same account volume.
+2. Confirm none of them is running. An absent host PID is not enough: container PID reuse can hide a live holder. If you cannot confirm that, leave the service stopped and leave the lock in place.
+3. When you have confirmed that no process or runtime still uses the account volume, manually remove only the inspected `.relmio-claude.lock`. Do not erase config or login data to bypass the lock.
+
+The launcher never clears this lock for you. Keeping the login for a reinstall, or replacing the companion while keeping the login, does not clear it either.
 
 To retire a companion, review and stop/remove only its Compose project with `docker compose down` in its exact folder; the external n8n network and named account volume remain. Removing the volume, including `--volumes`, deletes native login/account state and needs separate explicit deletion approval. Bundle-folder removal neither removes that volume nor revokes provider login. Remove the retired n8n connection separately in its UI; never delete sibling deployments or restart n8n.
 
