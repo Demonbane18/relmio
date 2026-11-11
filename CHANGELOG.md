@@ -6,27 +6,131 @@ and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
 ## Unreleased
+
+## [0.25.0] - 2026-11-11
+
+Relmio 0.25.0 makes the browser wizard and its setup guide say what really
+happened and what to do next, tightens two security defaults, and adds
+experimental checks for servers other than the tested Hostinger KVM. Nothing
+in this release was run against a live VPS, live Docker or a real provider.
+The server, companion and folder-mode changes were checked with the
+repository's fakes and with rendered pages that used mocked responses.
+
+### Added
+
+- **Server check** on the five server pages. After you connect, one line
+  reports what the existing connection check learned about the server (system,
+  CPU, Docker, Compose, Buildx, memory, security options, n8n and network) and
+  how many warnings apply to that page. It stays closed until you open it. A
+  pass repeats what Docker reported and proves nothing about a later build.
+- A refused server check now names a code, and Help has an entry for each code
+  with up to three steps. Three refusals (Docker context, builder
+  configuration and default builder) used to reach the browser only as "The
+  request could not be completed safely."
+- **Hosting options** notes where a provider does not offer root sign-in by
+  default. Choosing a provider still does not change the sign-in fields, and
+  `sudo` does not unlock a root-only route. Every VM provider except Hostinger
+  KVM stays Experimental. If `/docker` is missing, create it yourself with
+  `sudo install -d -o root -g root -m 0755 /docker`; Relmio does not create it.
+- Removing Claude from this computer can keep the sign-in for a reinstall.
+  That keeps the login volume, including any account lock in it.
+- **Find a guide** on the hosted docs also lists matching sections, and the
+  home page lists **Claude for n8n** as Experimental with one notice that
+  Relmio is not affiliated with or endorsed by Anthropic.
+
+### Changed
+
+- The setup guide no longer covers the controls you are working with. When it
+  has no room it folds into a chip that shows the current tip title. At
+  1280x720 it folded in 10 of 16 measured views. A tip counts as done only when
+  the action succeeded, the guide follows keyboard focus, and Help lists word
+  explanations next to the questions.
+- A failed install that names no field keeps your settings and no longer tells
+  you to fix a marked box. On this computer it stays on Install and offers
+  **Review the plan again**.
+- Claude review on this computer has two stages: the four answers, then the
+  plan. Each Claude screen shows the Anthropic notice once.
+- The local dashboard shows the Claude companion's runtime (running, starting,
+  restarting, unhealthy or stopped) and when its approval expires. Starting is
+  normal for about the first minute. Dates use your local format.
+- On a server, a new SuperGrok or self-hosted model install is refused at
+  review on a CPU other than `x86_64` or `aarch64`, as Claude already was. An
+  arm64 server gets a warning on every flow because arm64 servers are
+  untested. Missing Buildx is a warning.
+- SuperGrok management on a server follows the installed Docker network and
+  the same n8n container name, so it keeps working after that n8n is
+  recreated. A different n8n or network is refused by name.
+- The Assistant plan warns, and does not refuse, when the selected n8n already
+  runs its own sandbox.
+- A newly installed or replaced Claude `login.sh` no longer needs `python3` on
+  the server. `renew.sh` still does.
+- The npm package no longer includes the setup, example and diagram
+  screenshots, which stay in the repository. It is about 1.6 MB packed, down
+  from about 7.9 MB. It now includes `npm-shrinkwrap.json`. Registry installs
+  with npm 10 or 11, which Node.js 24 and 26 bundle, honour that file. npm 12
+  and later ignore it, and so does an install from the tarball file, which
+  Homebrew uses.
+- Commands that do not open the wizard start faster. On one Mac with Node.js
+  26, `relmio --version` took a median 78 ms instead of 133 ms.
+- The website's home page no longer loads the Motion library, which removed
+  about 120 KB of JavaScript before compression. The connection selector now
+  switches at once instead of animating the old detail out. The Homebrew tab
+  says to run `relmio` next, and Windows visitors start on the PowerShell tab.
+
 ### Fixed
 
-- Local Claude install probes now call the companion at `127.0.0.1:14502` with
-  Host `relmio-claude:14502`. A loopback Host was rejected after Compose
-  reported the container healthy, so the one-time n8n key was never returned.
-- A failed local or VPS Claude install after it starts writing removes only
-  that attempt: the companion container, its managed files, and, on a fresh
-  install, the login volume it just created. A failed replace keeps the login
-  volume. The original error is still reported. n8n is not touched.
-- A labeled `relmio-claude_claude-account` volume left behind with no companion
-  folder or container is an absent install that keeps that login. Any other
-  leftover volume is still refused.
-- Claude management stays available on a VPS without running n8n, and a
-  failed post-install SSH identity check no longer loses the one-time key.
-- Local Claude rollback checks resource ownership before stopping anything.
-  Removal works after image cleanup, stopped companions can renew approval,
-  and strict file-creation permissions no longer block the image's app files.
-- Wizard-managed Claude bundles require renewal in the wizard. Approval
-  comparisons ignore JSON key order, VPS checks reject internal networks,
-  and failed native sign-in checks remain errors.
+- A Claude companion that keeps restarting, is unhealthy, or has an expired
+  approval is no longer shown as healthy. After a crash, an out-of-memory kill
+  or an unclean reboot, the account lock can remain and the companion restarts
+  with `account_locked`. Relmio does not clear the lock, and keeping the
+  sign-in on removal or replacement keeps the lock too. Recovery is the
+  operator steps in
+  [Shutdown and account-lock recovery](docs/claude-native-prompt.md#shutdown-and-account-lock-recovery),
+  after every container and process using the account has stopped.
+- A server whose Compose version carries a distribution suffix, such as
+  Ubuntu's `2.40.3+ds1-0ubuntu1~24.04.1`, passes the connection check.
+- An n8n container that Docker lists by image ID is found.
+- The Claude review on this computer fits one screen and no longer scrolls
+  sideways on a phone.
+- On the Claude and SuperGrok server pages, a server identity confirmation is
+  used once. After a successful connect, another attempt starts with a new
+  identity check.
 
+### Security
+
+- `/docker/n8n-openai-oauth` is created with mode `0700` for root. An existing
+  folder from an earlier release is set to `0700` the next time you confirm a
+  change on that server, such as an install, update, removal, sign-in or
+  sign-out. Checking status, reviewing a plan, sign-in polling and cancelling
+  an image sign-in never change it. Before this, a host account with the same
+  UID as the session owner could read the ChatGPT session through a
+  mode-`0755` parent. Root, a Docker administrator and a backup can still read
+  it. The folder's group is not reset, and the session folder inside keeps its
+  own owner and mode.
+- A new n8n stack on this computer no longer publishes ngrok's inspector. The
+  ngrok service has no host port, its agent API stays on loopback inside the
+  container, and the tunnel keeps no copy of requests. A stack from 0.24.0 or
+  earlier keeps its published inspector until you remove it and set it up
+  again. Removal deletes the n8n data volume, so export workflows and
+  credentials first. Relmio 0.24.0 and earlier cannot manage a stack that
+  0.25.0 created. The new ngrok settings follow ngrok's documentation and were
+  not started against a live tunnel.
+- The SSH password is removed from the connection settings once you are signed
+  in. This is not a guarantee that no copy remains in memory.
+- The Assistant installer on a server checks folder ownership before it
+  writes, and publishes its files atomically.
+- The website's React packages move to 19.2.9 for CVE-2026-126187
+  ([GHSA-xqc2-xf4c-x3h3](https://github.com/advisories/GHSA-xqc2-xf4c-x3h3)),
+  a remote code execution flaw in React Server Components. Vite, undici, zod
+  and fast-uri are patched as well. The site runs Next.js 16.4.2 and its code
+  uses no Server Actions, no `use cache` and no typed-array responses, but the
+  live site was not tested for the flaw. `npm audit --audit-level=high` passes
+  for the website. Seventeen moderate findings remain in its lint and
+  alternate-build tooling and need major upgrades.
+- The [2026-11-11 OpenAI source check](docs/openai-source-check-2026-11-11.md)
+  is the current comparison. Requested ChatGPT scopes and the session path are
+  unchanged. It claims no Terms compliance, and it records the November 20,
+  2026 Usage Policies change as future-effective and unclassified.
 
 
 ## [0.24.0] - 2026-11-05
@@ -83,6 +187,14 @@ Anthropic, and Anthropic has not approved it.
 - A labeled `relmio-claude_claude-account` login volume with no companion folder
   or container is reused by a fresh install and kept on failure; other
   unrecognized leftover volumes remain refused.
+- Claude management stays available on a VPS without running n8n, and a
+  failed post-install SSH identity check no longer loses the one-time key.
+- Local Claude rollback checks resource ownership before stopping anything.
+  Removal works after image cleanup, stopped companions can renew approval,
+  and strict file-creation permissions no longer block the image's app files.
+- Wizard-managed Claude bundles require renewal in the wizard. Approval
+  comparisons ignore JSON key order, VPS checks reject internal networks,
+  and failed native sign-in checks remain errors.
 
 ### Security
 

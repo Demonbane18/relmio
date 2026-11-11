@@ -60,19 +60,23 @@ function extractLocalInstallHandler(script) {
     'element("remove-bridge-confirm").addEventListener("change"',
     handlerStart,
   );
+  // The failure branch asks whether the error names a setting; this is the page's own rule.
+  const fieldRuleStart = script.indexOf("const LOCAL_PORT_REJECTION");
+  const fieldRuleEnd = script.indexOf("\nfunction clearFieldErrors", fieldRuleStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart);
   assert.ok(apiKeyHelperStart >= 0 && apiKeyHelperEnd > apiKeyHelperStart);
   assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  assert.ok(fieldRuleStart >= 0 && fieldRuleEnd > fieldRuleStart);
   return {
     handler: script.slice(handlerStart, handlerEnd),
-    helpers: `${script.slice(helperStart, helperEnd)}\n${script.slice(
+    helpers: `${script.slice(fieldRuleStart, fieldRuleEnd)}\n${script.slice(helperStart, helperEnd)}\n${script.slice(
       apiKeyHelperStart,
       apiKeyHelperEnd,
     )}`,
   };
 }
 
-function createInstallHarness(script, { target = "local-n8n-stack", publicAccess = "ngrok" } = {}) {
+function createInstallHarness(script, { target = "local-n8n-stack", publicAccess = "ngrok" } = {}, extra = {}) {
   const elements = new Map();
   const getElement = (id) => {
     if (!elements.has(id)) elements.set(id, createFakeElement());
@@ -184,6 +188,8 @@ function createInstallHarness(script, { target = "local-n8n-stack", publicAccess
       },
     },
   };
+  // Page globals a target needs beyond the shared fakes, such as Claude's review answers.
+  Object.assign(sandbox, extra);
   const { handler, helpers } = extractLocalInstallHandler(script);
   const installHandler = runInNewContext(
     `${helpers}\n${handler}\nelement("install-button").handlers.get("click");`,
@@ -491,7 +497,8 @@ test("the reviewed retry path requires an exact boolean attestation", async () =
 
   assert.equal(harness.state.planId, null);
   assert.equal(harness.state.plan, null);
-  assert.deepEqual(harness.shownSteps, [1]);
+  // An unclassified failure names no setting, so the person stays on the Install step.
+  assert.deepEqual(harness.shownSteps, [3]);
   assert.equal(harness.ngrokAuthtoken.value, "");
   assert.equal(harness.basicAuthUsername.value, "");
   assert.equal(harness.basicAuthPassword.value, "");
@@ -559,4 +566,76 @@ test("a partial-stack removal requires the exact boolean attestation", async () 
   assert.equal(strict.state.planId, null);
   assert.deepEqual(strict.shownSteps, [4]);
   assert.deepEqual(strict.shownErrors, [attestedError]);
+});
+
+test("an unconfirmed install keeps the person on Install with their settings and a fresh review", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  for (const failure of [
+    { message: "Local Claude Docker operation failed.", status: 500, recovery: "none" },
+    { message: "Local Claude Docker operation failed.", status: 400, recovery: "fix-request" },
+    { message: "The local Docker process timed out." },
+  ]) {
+    const harness = createInstallHarness(script, { target: "xai-grok-build" });
+    harness.element("install-review-again").hidden = true;
+    const attempt = harness.installHandler({ currentTarget: harness.installButton });
+    const { message, ...fields } = failure;
+    const error = Object.assign(new Error(message), fields);
+    harness.request.reject(error);
+    await attempt;
+
+    assert.deepEqual(harness.shownSteps, [3], "no trip back to settings that are fine");
+    assert.equal(harness.state.planId, null, "the used plan is gone");
+    assert.equal(harness.state.installUnconfirmed, true);
+    assert.equal(harness.installButton.hidden, true);
+    assert.equal(harness.element("install-review-again").hidden, false);
+    assert.match(harness.element("install-intro").textContent, /settings are kept and nothing in them needs fixing/u);
+    assert.match(harness.element("install-intro").textContent, /Connections on the dashboard for a leftover connection/u);
+    assert.match(harness.messages.at(-1), /not confirmed\. Your settings are kept/u);
+    // Error help reads this code instead of advice about a marked field.
+    assert.deepEqual(harness.shownErrors, [error]);
+    assert.equal(error.errorCode, "install_unconfirmed");
+  }
+});
+
+test("a failed install that names a setting or a sign-in step still returns to the settings", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  for (const failure of [
+    { message: "The selected local endpoint port is already in use.", status: 400, recovery: "fix-request" },
+    { message: "The request was not accepted.", status: 400, recovery: "fix-request", param: "port" },
+    { message: "Sign in again.", status: 401, recovery: "reauthorize" },
+  ]) {
+    const harness = createInstallHarness(script, { target: "xai-grok-build" });
+    harness.element("install-review-again").hidden = true;
+    const attempt = harness.installHandler({ currentTarget: harness.installButton });
+    const { message, ...fields } = failure;
+    const error = Object.assign(new Error(message), fields);
+    harness.request.reject(error);
+    await attempt;
+
+    assert.deepEqual(harness.shownSteps, [1], message);
+    assert.equal(Object.hasOwn(error, "errorCode"), false, "marked-field and sign-in help keep their own advice");
+    assert.equal(harness.state.installUnconfirmed, undefined);
+    assert.equal(harness.element("install-review-again").hidden, true);
+    assert.match(harness.messages.at(-1), /Your settings are kept/u);
+  }
+});
+
+test("the Claude install status names its private network and claims no loopback port", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = createInstallHarness(script, { target: "n8n-claude-oauth" }, {
+    CLAUDE_REVIEW_KEYS: ["officialBinaryReviewed", "effectivePolicyReviewed", "nativeAuthAndBillingReviewed", "policyChangesControlled"],
+    // The operation helpers register their capture guards on the document when one exists.
+    document: { body: { dataset: {} }, addEventListener() {}, querySelector: () => ({ checked: true }), querySelectorAll: () => [] },
+  });
+  const attempt = harness.installHandler({ currentTarget: harness.installButton });
+  assert.equal(harness.apiCalls.length, 1);
+  assert.equal(harness.apiCalls[0].options.body.review.officialBinaryReviewed, true);
+  // The reviewed plan joins the Docker network and publishes no host port.
+  assert.match(harness.messages[0], /private Claude companion/u);
+  assert.match(harness.messages[0], /no host port/u);
+  assert.doesNotMatch(harness.messages[0], /loopback/u);
+  harness.request.resolve({ target: "n8n-claude-oauth" });
+  await attempt;
+  assert.deepEqual(harness.shownSteps, [4]);
+  assert.deepEqual(harness.shownErrors, []);
 });

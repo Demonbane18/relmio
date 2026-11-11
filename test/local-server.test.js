@@ -925,7 +925,6 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
     publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
-    ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "sandbox-with-searxng",
     localUrl: "http://localhost:5679",
@@ -962,7 +961,7 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
           searxngUrl: "http://relmio-searxng:8080",
         },
         assistantMode: stackPlan.assistantMode,
-        hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
+        hostPublication: "n8n http://127.0.0.1:5679",
         deploymentMode: "new-disposable-stack",
         dockerHost,
         basicAuthPassword,
@@ -978,15 +977,18 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
     },
   });
 
-  const planned = await createPlan(wizard, {
+  const planRequest = {
     target: "local-n8n-stack",
     publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: "5679",
-    ngrokInspectorPort: "4041",
     timezone: stackPlan.timezone,
     assistantMode: stackPlan.assistantMode,
-  });
+  };
+  const retiredInspector = await postJson(wizard, "/api/local/plan", { ...planRequest, ngrokInspectorPort: "4041" });
+  assert.equal(retiredInspector.status, 400);
+  assert.equal(plans, 0);
+  const planned = await createPlan(wizard, planRequest);
   assert.equal(plans, 1);
   assert.equal(JSON.stringify(planned).includes(dockerHost), false);
   assert.equal(planned.plan.localUrl, stackPlan.localUrl);
@@ -1062,7 +1064,6 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
-    ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "disabled",
     localUrl: "http://localhost:5679",
@@ -1112,7 +1113,6 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: String(stackPlan.n8nPort),
-    ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
     timezone: stackPlan.timezone,
     assistantMode: stackPlan.assistantMode,
   });
@@ -1155,7 +1155,6 @@ test("safely cleaned non-ngrok startup failures preserve the reviewed plan witho
     publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
-    ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "sandbox-with-searxng",
     localUrl: "http://localhost:5679",
@@ -1196,7 +1195,6 @@ test("safely cleaned non-ngrok startup failures preserve the reviewed plan witho
     publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: String(stackPlan.n8nPort),
-    ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
     timezone: stackPlan.timezone,
     assistantMode: stackPlan.assistantMode,
   });
@@ -1242,7 +1240,7 @@ test("stopped stack resume requires an explicit user action and returns no Docke
         containerServices: ["n8n", "ngrok"],
         networks: ["edge"],
         assistantSettings: null,
-        hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
+        hostPublication: "n8n http://127.0.0.1:5679",
       };
     },
   });
@@ -1264,7 +1262,7 @@ test("stopped stack resume requires an explicit user action and returns no Docke
     networks: ["edge"],
     assistantMode: "disabled",
     assistantSettings: null,
-    hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
+    hostPublication: "n8n http://127.0.0.1:5679",
     resumed: true,
     deploymentMode: "resumed-owned-disposable-stack",
   });
@@ -1446,7 +1444,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
               endpoints: {
                 n8nLocal: "http://localhost:80",
                 ngrokPublic: "https://example.ngrok.app",
-                ngrokInspector: "http://127.0.0.1:81",
+                ngrokInspector: "http://127.0.0.1:81", // Retired after 0.24.0; never returned.
                 secret: canary,
               },
               components: {
@@ -1496,6 +1494,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
   assert.equal(response.status, 200);
   const responseText = await response.text();
   assert.equal(responseText.includes(canary), false);
+  assert.equal(responseText.includes("127.0.0.1:81"), false);
   assert.equal(responseText.includes("reveal-secret"), false);
   assert.deepEqual(JSON.parse(responseText), {
     schemaVersion: 1,
@@ -1540,7 +1539,6 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           endpoints: {
             n8nLocal: "http://localhost:80",
             ngrokPublic: "https://example.ngrok.app",
-            ngrokInspector: "http://127.0.0.1:81",
           },
           components: {
             n8n: true,
@@ -1931,7 +1929,6 @@ test("local n8n startup errors expose recovery only for the exact attested parti
     publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
-    ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "disabled",
     localUrl: "http://localhost:5679",
@@ -1993,7 +1990,6 @@ test("local n8n startup errors expose recovery only for the exact attested parti
         publicAccess: "ngrok",
         ngrokHostname: stackPlan.ngrokHostname,
         n8nPort: String(stackPlan.n8nPort),
-        ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
         timezone: stackPlan.timezone,
         assistantMode: stackPlan.assistantMode,
       });

@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { createLocalN8nModelPlan, getLocalModelDefinition, LOCAL_MODEL_RUNTIME_IMAGE } from "../src/domain/local-n8n-model.js";
+import { SHARED_ROOT_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND } from "../src/domain/safety.js";
 import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../src/services/vps-local-model.js";
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
+import { startIsolatedWizard as startWizardServer } from "./helpers/siwc-wizard.js";
 
 const containerId = "a".repeat(64);
 const networkId = "b".repeat(64);
@@ -61,7 +64,7 @@ test("VPS review binds exact selected IDs and measured model budget without remo
   assert.deepEqual(plan.sharedRootBootstrap, {
     directory: "/docker/n8n-openai-oauth",
     markerPath: "/docker/n8n-openai-oauth/.managed-by-relmio-root",
-    mayCreateDirectory: true, mayCreateMarker: true, preservesExistingMode: true,
+    mayCreateDirectory: true, mayCreateMarker: true, directoryMode: "0700",
   });
   assert.equal(plan.operationLockPath, "/docker/n8n-openai-oauth/.local-model-operation.lock");
   assert.ok(remote.calls.every(command => !/\b(?:mkdir|rm|stop|start|upload|build|pull|up -d)\b/u.test(command)));
@@ -138,10 +141,11 @@ test("unsafe or missing docker parent is an administrator prerequisite before re
   for (const prerequisite of [{ parentCode: 1 }, { parentMetadata: "1000:755" },
     { parentMetadata: "0:775" }, { parentMetadata: "0:777" }, { parentMetadata: "" }]) {
     const remote = remoteFixture(prerequisite);
-    await assert.rejects(() => inspectVpsLocalModel({ remote, ...selection }), /administrator.*\/docker/iu);
+    const refusal = error => error.code === "vps_prereq_docker_dir" && !error.message.includes("/docker");
+    await assert.rejects(() => inspectVpsLocalModel({ remote, ...selection }), refusal);
     await assert.rejects(() => reviewVpsLocalModel({ remote, ...selection,
-      action: "install", modelId: "qwen3:0.6b" }), /administrator.*\/docker/iu);
-    await assert.rejects(() => installVpsLocalModel({ remote, plan, confirmed: true }), /administrator.*\/docker/iu);
+      action: "install", modelId: "qwen3:0.6b" }), refusal);
+    await assert.rejects(() => installVpsLocalModel({ remote, plan, confirmed: true }), refusal);
     assert.ok(remote.calls.every(command => !/\b(?:mkdir|rm|stop|start|build|pull)\b/u.test(command)));
   }
 });
@@ -193,7 +197,7 @@ test("a replaced n8n/network identity is rejected before any remote write", asyn
       changed.calls.push(command);
       return Promise.resolve({ code: 0, stdout: "managed" });
     }
-    if (command.includes("mkdir -m 0755 /docker/n8n-openai-oauth")) {
+    if (command.startsWith(SHARED_ROOT_COMMAND)) {
       changed.calls.push(command);
       return Promise.resolve({ code: 0, stdout: "" });
     }
@@ -275,7 +279,7 @@ function installedFixture({ phase = "model-ready", foreignVolume = false, foreig
       Name: selection.networkName, Id: networkId, Driver: "bridge", Scope: "local", Internal: false, Containers: {} }) };
     if (command.includes(".local-model-operation.lock") && command.includes("mkdir")) return { code: 0, stdout: "22:33" };
     if (command.includes("BUILDX_CONFIG=") || command.includes("state_guard()")) return { code: 0, stdout: "" };
-    if (command.startsWith("docker rm -f ") || command.startsWith("docker volume rm ") ||
+    if (command === SHARED_ROOT_TIGHTEN_COMMAND || command.startsWith("docker rm -f ") || command.startsWith("docker volume rm ") ||
         command.startsWith("docker image rm ") || command.startsWith("rm -f -- ") ||
         command.includes("rmdir /docker/n8n-openai-oauth/.local-model-operation.lock") ||
         command.startsWith("[ ! -L ")) return { code: 0, stdout: "" };
@@ -404,7 +408,7 @@ test("a retagged foreign image blocks cache deletion before any owned resource i
   assert.ok(attempted.every(command => !command.startsWith("docker rm ") && !command.startsWith("docker volume rm ")));
 });
 
-test("confirmed install creates only the owned private runtime, cache and detached acquisition", async () => {
+function installFixture({ failStep, foreignImage = false } = {}) {
   const prior = installedFixture({ phase: "downloading" });
   const remote = remoteFixture();
   const initial = remote.exec;
@@ -419,6 +423,13 @@ test("confirmed install creates only the owned private runtime, cache and detach
     if (path.endsWith("/.managed-by-relmio.json.next")) pendingMarker = JSON.parse(contents);
   };
   remote.exec = async command => {
+    if ((failStep === "config" && command.includes(" config --quiet")) ||
+        (failStep === "build" && command.includes(" --profile acquisition build ")) ||
+        (failStep === "start" && command.includes(" up -d --wait ")) ||
+        (failStep === "image-check" && helperImageBuilt && command.startsWith("docker image inspect "))) {
+      remote.calls.push(command);
+      return { code: 7, stdout: "", stderr: "remote details must not escape" };
+    }
     if (command.startsWith("if [ -e /docker/n8n-openai-oauth ]")) {
       remote.calls.push(command);
       return { code: 0, stdout: "managed" };
@@ -469,7 +480,7 @@ test("confirmed install creates only the owned private runtime, cache and detach
     if (command.startsWith("docker image inspect ")) {
       remote.calls.push(command);
       return helperImageBuilt ? { code: 0, stdout: JSON.stringify({ Id: prior.marker.helperImageId, Config: { Labels: {
-        "io.relmio.managed": "true", "io.relmio.install": prior.marker.installId,
+        "io.relmio.managed": "true", "io.relmio.install": foreignImage ? "foreign" : prior.marker.installId,
         "io.relmio.target": "n8n-local-model" } } }) }
         : { code: 1, stdout: "" };
     }
@@ -490,22 +501,25 @@ test("confirmed install creates only the owned private runtime, cache and detach
     if (command.startsWith("docker compose ") || command.startsWith("[ ! -L ") ||
         command.includes("rmdir /docker/n8n-openai-oauth/.local-model-operation.lock") ||
         command.includes("umask 077 && mkdir /docker/n8n-openai-oauth/local-model") ||
-        command.includes("mkdir -m 0755 /docker/n8n-openai-oauth")) {
+        command.startsWith(SHARED_ROOT_COMMAND)) {
       remote.calls.push(command);
       return { code: 0, stdout: "" };
     }
     return initial(command);
   };
+  return { remote, prior, uploads, entropy: count => Buffer.alloc(count, uploads.length ? 0xdd : 0xcc) };
+}
+
+test("confirmed install creates only the owned private runtime, cache and detached acquisition", async () => {
+  const { remote, prior, uploads, entropy } = installFixture();
   const plan = await reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" });
-  const result = await installVpsLocalModel({ remote, plan, confirmed: true }, {
-    entropy: count => Buffer.alloc(count, uploads.length ? 0xdd : 0xcc),
-  });
+  const result = await installVpsLocalModel({ remote, plan, confirmed: true }, { entropy });
   assert.equal(result.state, "downloading");
   assert.equal(result.installId, prior.marker.installId);
   assert.equal(result.containerId, containerId);
-  const rootWrite = remote.calls.find(command => command.includes("mkdir -m 0755 /docker/n8n-openai-oauth"));
+  const rootWrite = remote.calls.find(command => command.startsWith(SHARED_ROOT_COMMAND));
   assert.ok(rootWrite);
-  assert.doesNotMatch(rootWrite, /install -d -m 0755/u);
+  assert.doesNotMatch(rootWrite, /install -d/u);
   assert.ok(rootWrite.includes("stat -c %u /docker/n8n-openai-oauth"));
   assert.equal(result.networkId, networkId);
   assert.deepEqual(new Set(uploads.map(item => item.path.split("/").at(-1))), new Set([
@@ -902,6 +916,10 @@ test("failed runtime bootstrap can be explicitly reviewed for retry without disc
   assert.ok(installed.remote.calls.some(command => command.includes(" --profile acquisition build ")));
   assert.ok(installed.remote.calls.some(command => command.includes(" up -d --wait ")));
   assert.ok(installed.remote.calls.every(command => !command.startsWith("docker volume rm ")));
+  // The confirmed recovery set the shared folder's mode once, before it built anything.
+  assert.equal(installed.remote.calls.filter(command => command === SHARED_ROOT_TIGHTEN_COMMAND).length, 1);
+  assert.ok(installed.remote.calls.indexOf(SHARED_ROOT_TIGHTEN_COMMAND) <
+    installed.remote.calls.findIndex(command => command.includes(" --profile acquisition build ")));
 });
 
 test("an occupied helper image tag is rejected before a build could overwrite it", async () => {
@@ -937,7 +955,7 @@ test("an occupied helper image tag is rejected before a build could overwrite it
     if (command.startsWith("docker compose ") || command.startsWith("[ ! -L ") ||
         command.includes("rmdir /docker/n8n-openai-oauth/.local-model-operation.lock") ||
         command.includes("umask 077 && mkdir /docker/n8n-openai-oauth/local-model") ||
-        command.includes("mkdir -m 0755 /docker/n8n-openai-oauth")) return { code: 0, stdout: "" };
+        command.startsWith(SHARED_ROOT_COMMAND)) return { code: 0, stdout: "" };
     return original(command);
   };
   await assert.rejects(() => installVpsLocalModel({ remote, plan, confirmed: true }, {
@@ -945,4 +963,166 @@ test("an occupied helper image tag is rejected before a build could overwrite it
   }));
   assert.equal(built, false);
   assert.ok(remote.calls.some(command => command.startsWith("docker image inspect relmio-n8n-local-model-acquisition-")));
+});
+
+test("model install review refuses known unsupported CPUs and proceeds when facts are unknown", async () => {
+  for (const arch of ["riscv64", "s390x", "armv7l", "i686"]) {
+    const remote = remoteFixture();
+    remote.host = { arch };
+    await assert.rejects(reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" }),
+      error => error.code === "vps_host_unsupported_cpu");
+    assert.equal(remote.calls.length, 0);
+  }
+  for (const host of [undefined, null, {}, { arch: null }, { arch: "x86_64" }, { arch: "aarch64" }]) {
+    const remote = remoteFixture();
+    remote.host = host;
+    const plan = await reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" });
+    assert.equal(plan.action, "install");
+    assert.ok(remote.calls.every(command => !command.includes("mkdir")));
+  }
+});
+
+test("model setup step failures carry specific codes without reclassifying attestation failures", async () => {
+  for (const [failStep, code, message] of [
+    ["config", "vps_step_compose_config", /Compose did not accept/u],
+    ["build", "vps_step_build", /helper image did not build/u],
+    ["image-check", "vps_step_image_check", /could not show the model helper image/u],
+    ["start", "vps_step_start", /runtime did not start and become healthy/u],
+  ]) {
+    const { remote, entropy } = installFixture({ failStep });
+    const plan = await reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" });
+    await assert.rejects(installVpsLocalModel({ remote, plan, confirmed: true }, { entropy }), error => {
+      assert.equal(error.code, code);
+      assert.match(error.message, message);
+      assert.ok(error.safeMessage.length <= 155);
+      assert.doesNotMatch(error.message, /ownership|remote details|\/docker\//u);
+      return true;
+    });
+  }
+  const { remote, entropy } = installFixture({ foreignImage: true });
+  const plan = await reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" });
+  await assert.rejects(installVpsLocalModel({ remote, plan, confirmed: true }, { entropy }), error =>
+    error.code === undefined && error.message === "The VPS local-model ownership or safety check failed. No unverified resource was changed.");
+});
+
+async function modelServer(t, remote, overrides = {}) {
+  const token = "t".repeat(43);
+  const server = await startWizardServer({ sessionToken: token, uiFiles: { "/": "fixture" }, services: {
+    scanHostFingerprint: async () => `SHA256:${"a".repeat(43)}`,
+    connectVerified: async request => verifiedSshFixture(request, { ...remote, close() {} }),
+    discoverN8n: async () => ({ containers: [{ id: containerId, name: selection.containerName, image: "n8nio/n8n", state: "running" }] }),
+    discoverNetworks: async () => ({ networks: [selection.networkName], instanceAi: { status: "missing" } }),
+    inspectVpsLocalModel, getVpsLocalModelOperationStatus, reviewVpsLocalModel,
+    ...overrides,
+  } });
+  t.after(() => server.close());
+  const post = (path, body = {}) => fetch(server.origin + path, { method: "POST",
+    headers: { Origin: server.origin, "Content-Type": "application/json", "X-Setup-Token": token },
+    body: JSON.stringify(body) });
+  const { fingerprint } = await (await post("/api/ssh/fingerprint", { host: "fixture.example", port: 22 })).json();
+  assert.equal((await post("/api/ssh/connect", { host: "fixture.example", port: 22, username: "root", useAgent: false,
+    privilege: "root", password: "fixture-only", expectedFingerprint: fingerprint })).status, 200);
+  assert.equal((await post("/api/discover")).status, 200);
+  assert.equal((await post("/api/networks", { containerName: selection.containerName })).status, 200);
+  return post;
+}
+
+test("a model download poll makes one inspection pass and keeps selection and ownership refusals", async t => {
+  const f = installedFixture({ phase: "downloading" });
+  // Reproduce the previous route's two passes with the same fake remote and public services.
+  const previous = await inspectVpsLocalModel({ remote: f.remote, ...selection });
+  await getVpsLocalModelOperationStatus({ remote: f.remote, installId: previous.installId });
+  assert.equal(f.remote.calls.length, 46); // 46 + K; this network fixture has no member entries.
+  f.remote.calls.length = 0;
+  const post = await modelServer(t, f.remote);
+  const poll = body => post("/api/vps/local-model/operation-status", { ...selection, installId: f.marker.installId, ...body });
+  const response = await poll({});
+  assert.equal(response.status, 200);
+  const status = await response.json();
+  assert.equal(status.state, "downloading");
+  assert.equal(status.operation.completedBytes, 23000);
+  assert.equal(f.remote.calls.length, 22);
+
+  const moved = await poll({ networkName: "other-net", installId: "0".repeat(32) });
+  assert.equal(moved.status, 400);
+  assert.match((await moved.json()).error, /another n8n selection/u);
+  const changed = await poll({ installId: "0".repeat(32) });
+  assert.equal(changed.status, 400);
+  assert.match((await changed.json()).error, /identity changed/u);
+  f.volume.Labels["io.relmio.install"] = "foreign";
+  const unsafe = await poll({});
+  assert.equal(unsafe.status, 400);
+  assert.match((await unsafe.json()).error, /ownership or safety check/u);
+  assert.ok(f.remote.calls.every(command => !command.includes("mkdir") && !command.startsWith("docker rm ")));
+});
+
+test("the model prerequisite and unsupported CPU explanations reach the browser with their codes", async t => {
+  const cases = [
+    [remoteFixture({ parentMetadata: "0:777" }), "vps_prereq_docker_dir", /administrator/u],
+    [{ ...remoteFixture(), host: { arch: "riscv64" } }, "vps_host_unsupported_cpu", /CPU/u],
+  ];
+  for (const [remote, code, message] of cases) {
+    const post = await modelServer(t, remote);
+    const response = await post("/api/vps/local-model/plan", { ...selection, action: "install", modelId: "qwen3:0.6b" });
+    assert.equal(response.status, 400);
+    const failure = await response.json();
+    assert.equal(failure.code, code);
+    assert.match(failure.error, message);
+    assert.notEqual(failure.error, "The request could not be completed safely.");
+    assert.doesNotMatch(failure.error, /\/docker\//u);
+  }
+});
+
+test("the model review refuses the obsolete mode-preservation field and any unreviewed directory mode", async t => {
+  const remote = remoteFixture();
+  const good = await reviewVpsLocalModel({ remote, ...selection, action: "install", modelId: "qwen3:0.6b" });
+  const { directoryMode: _mode, ...old } = good.sharedRootBootstrap;
+  let bootstrap;
+  const post = await modelServer(t, remote, { reviewVpsLocalModel: async () => ({ ...good, sharedRootBootstrap: bootstrap }) });
+  for (const value of [
+    { ...old, preservesExistingMode: true },
+    { ...good.sharedRootBootstrap, preservesExistingMode: false },
+    { ...good.sharedRootBootstrap, directoryMode: "0755" },
+  ]) {
+    bootstrap = value;
+    assert.equal((await post("/api/vps/local-model/plan", { ...selection, action: "install", modelId: "qwen3:0.6b" })).status, 502);
+  }
+  bootstrap = good.sharedRootBootstrap;
+  const response = await post("/api/vps/local-model/plan", { ...selection, action: "install", modelId: "qwen3:0.6b" });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).sharedRootBootstrap, good.sharedRootBootstrap);
+});
+
+test("only a confirmed model retry or removal that passed its checks sets the shared folder mode, before its first write", async () => {
+  const tightened = remote => remote.calls.filter(command => command === SHARED_ROOT_TIGHTEN_COMMAND).length;
+  const removal = installedFixture();
+  const removePlan = await reviewVpsLocalModel({ remote: removal.remote, ...selection, action: "remove", clearModelCache: true });
+  await inspectVpsLocalModel({ remote: removal.remote, ...selection });
+  await getVpsLocalModelOperationStatus({ remote: removal.remote, installId: removal.marker.installId, ...selection });
+  await assert.rejects(changeVpsLocalModel({ remote: removal.remote, plan: removePlan, confirmed: false }), /Confirm/u);
+  assert.equal(tightened(removal.remote), 0, "status, review and an unconfirmed request");
+  await changeVpsLocalModel({ remote: removal.remote, plan: removePlan, confirmed: true });
+  assert.equal(tightened(removal.remote), 1);
+  const removed = removal.remote.calls;
+  assert.ok(removed.findIndex(command => command.includes(".local-model-operation.lock") && command.includes("mkdir")) < removed.indexOf(SHARED_ROOT_TIGHTEN_COMMAND));
+  assert.ok(removed.indexOf(SHARED_ROOT_TIGHTEN_COMMAND) < removed.findIndex(command => command.startsWith("docker rm -f ")));
+
+  const retry = retryFixture();
+  const retryPlan = await reviewVpsLocalModel({ remote: retry.remote, ...selection, action: "retry" });
+  assert.equal(tightened(retry.remote), 0);
+  await changeVpsLocalModel({ remote: retry.remote, plan: retryPlan, confirmed: true }, { entropy: count => Buffer.alloc(count, 0x99) });
+  assert.equal(tightened(retry.remote), 1);
+  const retried = retry.remote.calls;
+  assert.ok(retried.indexOf(SHARED_ROOT_TIGHTEN_COMMAND) < retried.indexOf(`docker stop -t 20 ${retry.runtime.Id}`));
+
+  // A confirmed request that fails its own checks changes nothing.
+  const foreign = installedFixture({ foreignImage: true });
+  const foreignPlan = await reviewVpsLocalModel({ remote: foreign.remote, ...selection, action: "remove", clearModelCache: true });
+  await assert.rejects(changeVpsLocalModel({ remote: foreign.remote, plan: foreignPlan, confirmed: true }));
+  const stale = installedFixture();
+  const stalePlan = await reviewVpsLocalModel({ remote: stale.remote, ...selection, action: "remove", clearModelCache: true });
+  stale.marker.installId = "e".repeat(32);
+  stale.marker.projectName = `relmio-n8n-local-model-${stale.marker.installId}`;
+  await assert.rejects(changeVpsLocalModel({ remote: stale.remote, plan: stalePlan, confirmed: true }));
+  for (const refused of [foreign, stale]) assert.equal(tightened(refused.remote), 0);
 });

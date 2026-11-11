@@ -7,18 +7,18 @@ catalog repositories.
 
 ## Stable and experimental channels
 
-The `0.18.0-experimental.2` candidate targets npm's `experimental` dist-tag
-after publication; preparing it does not change that public channel. Stable
-`0.17.5` remains `latest`, and hosted installers continue to use `relmio@latest`.
-Prerelease Windows x64 and arm64 ZIPs may be attached to
-the matching GitHub prerelease. They are versioned review artifacts, not a
-WinGet catalog release.
+This repository's package version is 0.25.0. Hosted installers invoke
+`relmio@latest`. A future prerelease uses npm's `experimental` dist-tag and
+does not move `latest`. The candidate generator rejects a prerelease Homebrew
+formula and WinGet manifests. Generate the Homebrew candidate only for a
+stable release, from the exact published npm tarball.
 
-Do not generate or submit a Homebrew formula or WinGet manifests for a
-prerelease. The candidate generator rejects prerelease versions for those
-catalogs. Generate the Homebrew candidate only for a stable release from the
-exact published npm tarball. WinGet remains unavailable until an upstream
-manifest pull request is merged and the catalog propagates it.
+On 2026-11-11, the external tap `Demonbane18/homebrew-relmio` formula pointed at
+`https://registry.npmjs.org/relmio/-/relmio-0.24.0.tgz` with the matching
+SHA-256. It is updated after each stable npm publication.
+
+A WinGet catalog pull request is also unverified from this repository. Public
+docs keep the WinGet install command hidden until the catalog accepts it.
 
 ## Homebrew
 
@@ -40,11 +40,17 @@ that `homebrew/core` accepts the formula.
 
 ### External status
 
-The external [`Demonbane18/homebrew-relmio`](https://github.com/Demonbane18/homebrew-relmio)
-tap is live at formula commit `6c8038f`. Its macOS workflow run `30905921073`
-passed the Homebrew audit, tap-qualified install, `relmio --version`, and
-`brew test` for Relmio 0.2.14. This repository generated the reviewed
-candidate; the external tap repository publishes and tests it.
+The external tap is
+[`Demonbane18/homebrew-relmio`](https://github.com/Demonbane18/homebrew-relmio).
+This repository generates the formula candidate. The tap repository publishes
+and tests it.
+
+The generated formula installs with Homebrew's `npm install` and `std_npm_args`
+against the downloaded tarball file. That file install does not honour
+`npm-shrinkwrap.json`. Registry installs with npm 10 or 11 honour the packaged
+shrinkwrap when the registry metadata includes `_hasShrinkwrap: true`;
+npm 12 and later ignore it. Homebrew uses the file install, so it is not
+pinned by the shrinkwrap.
 
 ## WinGet
 
@@ -75,10 +81,10 @@ then submit exactly one version through a separate `winget-pkgs` pull request.
 The package is not available through WinGet until that pull request is merged
 and the catalog has updated.
 
-A WinGet manifest pull request has been submitted separately and is pending
-review, merge, and catalog propagation. This repository's generator does not
-submit that pull request or publish the catalog entry, and public documentation
-must keep the WinGet install command hidden until the catalog accepts it.
+Whether a WinGet manifest pull request is open is unverified from this
+repository. This repository's generator does not submit that pull request or
+publish the catalog entry, and public documentation must keep the WinGet
+install command hidden until the catalog accepts it.
 
 ## Generate candidates
 

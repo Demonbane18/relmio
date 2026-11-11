@@ -40,7 +40,7 @@ async function fixture(t, overrides = {}) {
       temporaryBuildStatePath: action === "remove" ? null : "/docker/n8n-openai-oauth/.local-model-operation.lock/buildx",
       sharedRootBootstrap: action === "install" ? {
         directory: "/docker/n8n-openai-oauth", markerPath: "/docker/n8n-openai-oauth/.managed-by-relmio-root",
-        mayCreateDirectory: true, mayCreateMarker: true, preservesExistingMode: true,
+        mayCreateDirectory: true, mayCreateMarker: true, directoryMode: "0700",
       } : null,
       modelId: domain.modelId, approvedModelDigest: domain.approvedModelDigest,
       catalogRevision: domain.catalogRevision, runtimeImage: domain.runtimeImage,
@@ -207,7 +207,7 @@ test("VPS model confirms SSH identity then rejects unreviewed, stale and boundar
   assert.deepEqual(plan.publishedPorts, []);
   assert.deepEqual(plan.sharedRootBootstrap, {
     directory: "/docker/n8n-openai-oauth", markerPath: "/docker/n8n-openai-oauth/.managed-by-relmio-root",
-    mayCreateDirectory: true, mayCreateMarker: true, preservesExistingMode: true,
+    mayCreateDirectory: true, mayCreateMarker: true, directoryMode: "0700",
   });
   assert.equal(plan.operationLockPath, "/docker/n8n-openai-oauth/.local-model-operation.lock");
   assert.equal((await f.post("/api/vps/local-model/apply", { ...boundary, action: "install", planId: plan.planId, confirmed: false })).status, 400);

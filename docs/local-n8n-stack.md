@@ -26,9 +26,8 @@ You need:
 - one unused loopback port for n8n;
 - only if you enable ngrok: an account, a static hostname from the [ngrok
   Domains dashboard](https://dashboard.ngrok.com/domains), an agent token from
-  [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken), a
-  unique Basic Auth username and password, and another unused loopback port
-  for the inspector.
+  [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken), and a
+  unique Basic Auth username and password.
 
 **Your Authtoken** and **Settings → Authtokens** name the same ngrok
 agent-credential type. This applies only when ngrok is enabled. Paste one
@@ -60,9 +59,9 @@ on macOS and Windows.
    `relmio open` from a persistent install.
 3. Choose **Add connection**, then **Set up new n8n**.
 4. Choose the local n8n port and timezone. Leave **Public URL with ngrok
-   (optional)** off for private access. If enabled, enter the reserved hostname
-   and inspector port; supply the ngrok token and Basic Auth pair at
-   installation.
+   (optional)** off for private access. If enabled, enter the reserved hostname.
+   Supply the ngrok token and Basic Auth pair at installation. There is no
+   inspector port to choose.
 5. Choose an Assistant mode. **Disabled** adds no Assistant services.
    **Code Sandbox** adds private sandbox services. **Code Sandbox + SearXNG**
    also adds private web search.
@@ -83,14 +82,13 @@ request. It returns URLs and service names, never the stored secrets.
 
 ## Network boundary
 
-Private mode exposes only local n8n. Enabling ngrok adds a public route and a
-loopback inspector.
+Private mode exposes only local n8n. Enabling ngrok adds a public route. It
+does not publish an inspector on this computer.
 
 | Surface | Reachability |
 |---|---|
 | Local n8n | `http://127.0.0.1:<selected-port>` |
 | Optional public n8n route | `https://<reserved-hostname>` through ngrok and mandatory Basic Auth |
-| Optional ngrok inspector | `http://127.0.0.1:<selected-inspector-port>` |
 
 Port `10531` is never published. Optional Code Sandbox and SearXNG services
 publish no host ports and are not attached to the ngrok edge network. The
@@ -151,8 +149,13 @@ initializer is a one-shot service.
 
 Removal is refused while add-on containers remain attached. Remove those
 add-ons first, then separately confirm **Remove local n8n stack**. That action
-deletes the owned stack resources and data. Export anything you need first.
-Existing public stacks are not made private by this update.
+deletes the owned stack resources and data. Export workflows and credentials
+first. A stack installed by Relmio 0.24.0 or earlier keeps its old ngrok
+files, including a loopback inspector if that install published one. Status
+and **Resume owned stack** do not rewrite those files, and the dashboard no
+longer shows that inspector URL. The new ngrok setup, with no host inspector
+and no saved request capture, applies only after you remove the stack and set
+it up again. Existing public stacks are not made private by this update.
 
 ## Add ChatGPT plan, a local model and more
 

@@ -103,9 +103,9 @@ a badge, and the Ready screen lists your badges and next steps.
 If a step fails, the guide explains the error, lists what to do next and
 points at the control that fixes it. A **Need help with this error?** button
 opens the same help. **Help** is available on every wizard page even after
-you skip the walkthrough. Open it for the current prerequisite, or select
-**Help topic** to read an existing feature's tip or the bundled FAQ. Open an
-optional section first to include its controls in the topic list.
+you skip the walkthrough. Open it for the current step, or choose a topic under **This step**,
+**Questions** or **Words**. Open an optional section first to include its
+controls in **This step**.
 
 If **Check the server** is unavailable, choose **Help with Check the server**
 beside the account status. Identity-only sign-in points to **Allow ChatGPT plan
@@ -121,11 +121,18 @@ anything. If that control is absent or hidden, help says so and omits **Show
 me**. Choose **Current step** or open the relevant section to recover.
 
 The down arrow at the top of the guide (**Hide guide**), or Escape while the
-guide has focus, folds it into a small **Help** button. **Skip guide** turns
-the walkthrough off and keeps **Help** available. The **Setup guide** button in the top bar, or in the menu on very
-narrow windows, turns it on or off at any time. Every wizard page has the
-guide, including the dashboard on this computer, the Assistant wizard and
-**Hosting options**.
+guide has focus, folds it into a chip. The chip shows the current tip title
+while the walkthrough is on, **Help** when it is off, and **Need help with
+this error?** after a failure. Press the chip to open that tip. An unopened
+guide stays clear of the field you are using, the step's buttons and error
+messages, and folds instead of covering them when the window is too small.
+**Skip guide** turns the walkthrough off and keeps **Help** available. The
+**Setup guide** button in the top bar, or in the menu on very narrow
+windows, turns it on or off at any time. Read marks and badges stay in session
+storage for the current browser tab; no other guide progress is saved. Only
+the guide on/off choice is stored in Relmio's preferences. Every wizard page
+has the guide, including the dashboard on this computer, the Assistant wizard
+and **Hosting options**.
 
 **About this help** lists the bundled help revision, source version, review
 date and source guides. Help runs on this computer using fixed FAQ entries,
@@ -204,3 +211,7 @@ so install Relmio persistently before relying on these lifecycle commands.
   and its limits.
 - [Troubleshooting](./troubleshooting.md) when setup stops.
 - [Security](./security.md) for account, network, and credential rules.
+
+On the hosted docs site, **Find a guide** matches guide titles and summaries
+and lists any matching guide section, even if its guide did not match. The
+section index loads when the search field is first used.

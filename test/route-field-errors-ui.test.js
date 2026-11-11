@@ -7,6 +7,7 @@ import { clearFieldError, markRejectedField, setFieldError } from "../src/ui/ssh
 const pages = [
   ["assistant.js", "showError", "global-error-text"],
   ["supergrok-vps.js", "showError", "error-message"],
+  ["claude-vps.js", "showError", "error-message"],
   ["local-model-vps.js", "error", "error"],
 ];
 
@@ -29,10 +30,19 @@ for (const [file, handler, errorId] of pages) {
       return nodes.get(id);
     };
     element("host").setAttribute("aria-describedby", "host-hint");
-    element("host").label = "Server address";
+    const html = await readFile(`src/ui/${file.replace(".js", ".html")}`, "utf8");
+    for (const [id, label] of Object.entries({ host: "Server address", port: "Connection port", username: "Sign-in name", password: "Server password" })) {
+      const fieldAt = html.indexOf(`id="${id}"`);
+      assert.ok(fieldAt >= 0);
+      const labels = [...html.slice(0, fieldAt).matchAll(/<(?:span|label)\b[^>]*class="rm-field__label"[^>]*>([^<]+)<\/(?:span|label)>/gu)];
+      assert.equal(labels.at(-1)?.[1], label, `${file}: visible ${id} label`);
+      element(id).label = label;
+    }
+    const guided = [];
     const report = runInNewContext(`${script.slice(start, end)}; ${handler}`, {
       element, el: element, errorBox: element("global-error"), errorMessage: element("global-error-text"),
       clearFieldError, markRejectedField, setFieldError,
+      relmioGuide: { error(failure) { guided.push(failure); } },
     });
     for (const [message, field] of [["Hostname is invalid.", "host"], ["Port is invalid.", "port"], ["Username is invalid.", "username"], ["Password is invalid.", "password"]]) {
       report(handler === "error" ? message : new Error(message));
@@ -40,13 +50,18 @@ for (const [file, handler, errorId] of pages) {
       assert.ok(element(field).getAttribute("aria-describedby").split(" ").includes(errorId));
       assert.equal(element(file === "assistant.js" ? "global-error" : errorId).hidden, false);
       // The message uses the field's visible label when the page shows one.
-      assert.equal(element(errorId).textContent, field === "host" ? "Server address is invalid." : message);
+      assert.equal(element(errorId).textContent, `${element(field).label} is invalid.`);
       clearFieldError(element(field), errorId);
       assert.equal(element(field).getAttribute("aria-invalid"), null);
     }
     report(handler === "error" ? "The VPS is unreachable." : new Error("The VPS is unreachable."));
     for (const field of ["host", "port", "username", "password"]) assert.equal(element(field).getAttribute("aria-invalid"), null);
     assert.equal(element("host").getAttribute("aria-describedby"), "host-hint");
+    // Error help gets the failure itself, with the status and code a failed call carried.
+    const failure = Object.assign(new Error("The remote command timed out."), { status: 504, code: "vps_step_start", remoteOutcomeUnknown: true });
+    report(failure);
+    assert.equal(guided.at(-1), failure);
+    assert.equal(element(errorId).textContent, "The remote command timed out.");
   });
 }
 
@@ -291,6 +306,7 @@ test("SuperGrok copy recovers from clipboard denial without losing button focus"
   let handler;
   let copied;
   let status;
+  let flashed;
   let rejectClipboard;
   runInNewContext(script.slice(start, end), {
     element: id => id === "copy-key" ? { addEventListener: (_, callback) => { handler = callback; } } : input,
@@ -301,6 +317,7 @@ test("SuperGrok copy recovers from clipboard denial without losing button focus"
       execCommand(command) { copied = command; return true; },
     },
     setMessage(value) { status = value; }, showError() { throw new Error("Unexpected copy failure"); },
+    flashCopied(target) { flashed = target; },
   });
   const event = { currentTarget: button };
   const copying = handler(event);
@@ -313,6 +330,7 @@ test("SuperGrok copy recovers from clipboard denial without losing button focus"
   assert.equal(textarea["aria-hidden"], undefined);
   assert.equal(copied, "copy");
   assert.equal(button.focusCount, 1);
+  assert.equal(flashed, button, "the copy button shows the copied state");
   assert.match(status, /copied/i);
 });
 
@@ -332,6 +350,7 @@ test("Local model copy reads displayed settings after they diverge from status a
   };
   let copied;
   let status;
+  const flashed = [];
   runInNewContext(script.slice(start, end), {
     el, state: { busy: false, status: { modelId: "stale-model" } }, ENDPOINT: "http://stale.invalid/v1",
     navigator: { clipboard: { async writeText() { throw new Error("Denied"); } } },
@@ -340,6 +359,7 @@ test("Local model copy reads displayed settings after they diverge from status a
       execCommand(command) { copied = command; return true; },
     },
     message(value) { status = value; }, error() { throw new Error("Unexpected copy failure"); },
+    flashCopied(target) { flashed.push(target); },
   });
   for (const [buttonId, targetId, displayed] of [
     ["copy-url", "base-url", "http://displayed.invalid/v1"],
@@ -352,10 +372,64 @@ test("Local model copy reads displayed settings after they diverge from status a
     await el(buttonId).click({ currentTarget: button });
     assert.equal(textarea.value, displayed);
     assert.equal(button.focusCount, 1);
+    assert.equal(flashed.at(-1), button, "the pressed copy button shows the copied state");
   }
   assert.equal(textarea.selected, true);
   assert.equal(textarea.removed, true);
   assert.equal(textarea["aria-hidden"], undefined);
   assert.equal(copied, "copy");
   assert.match(status, /copied/i);
+});
+
+test("SuperGrok puts a used server identity confirmation away after connecting, even when discovery then fails", async () => {
+  const script = await readFile("src/ui/supergrok-vps.js", "utf8");
+  const resetStart = script.indexOf("function resetHost()");
+  const resetEnd = script.indexOf("\nasync function prepareReview(", resetStart);
+  const submitStart = script.indexOf('element("ssh-form").addEventListener("submit"');
+  const submitEnd = script.indexOf('\nelement("container").addEventListener', submitStart);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart && submitStart >= 0 && submitEnd > submitStart);
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, checked: false, value: "", textContent: "", addEventListener(name, handler) { this[name] = handler; } });
+    return nodes.get(id);
+  };
+  const fingerprint = `SHA256:${"a".repeat(43)}`;
+  const state = { fingerprint };
+  const calls = [];
+  let connectFails = false;
+  runInNewContext(`${script.slice(resetStart, resetEnd)}\n${script.slice(submitStart, submitEnd)}`, {
+    state, element, clearFieldError() {}, invalidateBoundaryState() {}, syncConnectionControls() {},
+    sshAuthentication: { request: (expectedFingerprint) => ({ expectedFingerprint }) },
+    async api(path, body) {
+      calls.push([path, body]);
+      if (connectFails) throw new Error("SSH sign-in was refused.");
+      return {};
+    },
+    async discover() { throw new Error("Docker did not answer on the server."); },
+    perform: async (_label, work) => { try { await work(); } catch { /* The page shows it. */ } },
+  });
+  const submit = async () => {
+    element("ssh-form").submit({ preventDefault() {} });
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  element("trust-host").checked = true;
+  element("fingerprint").textContent = fingerprint;
+  await submit();
+  assert.deepEqual(calls, [["/api/ssh/connect", { expectedFingerprint: fingerprint }]]);
+  assert.equal(element("fingerprint-box").hidden, true);
+  assert.equal(element("trust-host").checked, false);
+  assert.equal(element("fingerprint").textContent, "");
+  assert.equal(state.fingerprint, null);
+  // Another attempt needs a fresh identity check first.
+  await submit();
+  assert.equal(calls.length, 1);
+  // A refused sign-in keeps the confirmation, so the person can correct the password.
+  state.fingerprint = fingerprint;
+  element("fingerprint-box").hidden = false;
+  element("trust-host").checked = true;
+  connectFails = true;
+  await submit();
+  assert.equal(calls.length, 2);
+  assert.equal(element("fingerprint-box").hidden, false);
+  assert.equal(element("trust-host").checked, true);
 });

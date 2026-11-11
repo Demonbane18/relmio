@@ -9,6 +9,7 @@ import test from "node:test";
 import { createPreviewServices, PREVIEW_FIXTURES, runPreview } from "../scripts/preview.js";
 import { createPrivateBrowserHandoff } from "../src/services/browser-handoff.js";
 import { startWizardServer } from "../src/web/server.js";
+import { CLAUDE_REVIEW_FIELDS } from "../src/domain/local-n8n-claude.js";
 
 function hiddenInput(contents, name) {
   const match = new RegExp(`name="${name}" value="([^"]+)"`, "u").exec(contents);
@@ -259,4 +260,74 @@ test("sanitized preview keeps the guide choice in memory and writes no preferenc
   assert.deepEqual(await (await preferences({ guide: "off" })).json(), { guide: "off" });
   assert.deepEqual(await (await preferences()).json(), { guide: "off" });
   await assert.rejects(stat(join(root, "ui-preferences.json")), { code: "ENOENT" });
+});
+
+test("preview provider routes reach status and review without SSH, and confirmed applies stay refused", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "relmio-preview-providers-"));
+  const sessionToken = Buffer.alloc(32, 42).toString("base64url");
+  const services = createPreviewServices();
+  const wizard = await startWizardServer({ sessionToken, storageRoot: root, uiFiles: {},
+    services, previewMode: true, previewFixture: "connected" });
+  t.after(async () => {
+    await wizard.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const request = async (path, body) => {
+    const response = await fetch(`${wizard.origin}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", Origin: wizard.origin, "X-Setup-Token": sessionToken },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const ok = async (path, body) => {
+    const result = await request(path, body);
+    assert.equal(result.status, 200, `${path}: ${JSON.stringify(result.body)}`);
+    return result.body;
+  };
+  // The ordinary host-key review still applies, even though both scan and connect are fakes.
+  const destination = { host: "preview.example.test", port: 22 };
+  const login = { ...destination, username: "root", useAgent: false, privilege: "root", password: "preview-only" };
+  assert.equal((await request("/api/ssh/connect", login)).status, 400);
+  const { fingerprint } = await ok("/api/ssh/fingerprint", destination);
+  await ok("/api/ssh/connect", { ...login, expectedFingerprint: fingerprint });
+  const { containers } = await ok("/api/discover", {});
+  const containerName = containers[0].name;
+  const { networks } = await ok("/api/networks", { containerName });
+  const boundary = { containerName, networkName: networks[0] };
+  const host = await ok("/api/ssh/host-report");
+  assert.equal(host.host.arch, "x86_64");
+  assert.ok(host.rows.length > 1);
+
+  assert.equal((await ok("/api/vps/supergrok/status", boundary)).state, "absent");
+  assert.equal((await ok("/api/vps/claude/status")).state, "absent");
+  assert.equal((await ok("/api/vps/local-model/status", boundary)).state, "absent");
+  assert.deepEqual(await ok("/api/vps/supergrok/login-status", {}), { state: "idle" });
+  assert.equal((await ok("/api/vps/supergrok/models", { clientKey: "a".repeat(64) })).status, 200);
+  assert.deepEqual(await ok("/api/vps/claude/auth-status", {}), {
+    loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro",
+  });
+  assert.ok((await ok("/api/vps/claude/models", { clientKey: "p".repeat(43) })).models.length);
+
+  const grok = await ok("/api/vps/supergrok/plan", { ...boundary, action: "install" });
+  assert.deepEqual(grok.publishedPorts, []);
+  assert.equal((await request("/api/vps/supergrok/apply", { ...grok, confirmed: true })).status, 403);
+  const review = Object.fromEntries(CLAUDE_REVIEW_FIELDS.map(field => [field, true]));
+  assert.equal((await request("/api/vps/claude/plan", {
+    ...boundary, action: "install", models: ["claude-sonnet-5-5"], review: {},
+  })).status, 400);
+  const claude = await ok("/api/vps/claude/plan", {
+    ...boundary, action: "install", models: ["claude-sonnet-5-5"], review,
+  });
+  assert.equal(claude.plan.keepsClaudeLogin, false);
+  assert.equal((await request("/api/vps/claude/apply", { planId: claude.planId, confirmed: true })).status, 403);
+  const model = await ok("/api/vps/local-model/plan", { ...boundary, action: "install", modelId: "qwen3:0.6b" });
+  assert.equal(model.sharedRootBootstrap.directoryMode, "0700");
+  assert.equal((await request("/api/vps/local-model/apply", {
+    ...boundary, action: "install", planId: model.planId, confirmed: true,
+  })).status, 403);
+  for (const name of ["installVpsSuperGrok", "changeVpsSuperGrok", "applyVpsClaude",
+    "installVpsLocalModel", "changeVpsLocalModel", "installSidecar", "installAssistant"]) {
+    assert.throws(() => services[name]({ confirmed: true }), { statusCode: 403 }, name);
+  }
 });
