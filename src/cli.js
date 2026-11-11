@@ -7,19 +7,11 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { attachBrowserReopenOnEnter, openBrowser } from "./browser.js";
-import { runClaudeCommand } from "./claude/command.js";
-import { createPrivateBrowserHandoffRoot } from "./services/browser-handoff.js";
-import {
-  inspectLocalDashboardControlPlane,
-  readLocalDashboardBrowserUrl,
-  runLocalDashboardDaemon,
-  startLocalDashboardControlPlane,
-  stopLocalDashboardControlPlane,
-} from "./services/local-dashboard-control.js";
-import { runGrokBuildLogin } from "./services/grok-login.js";
-import { resolveLocalInstallRoot } from "./services/local-installer.js";
-import { resolveLocalN8nSuperGrokInstallRoot } from "./services/local-n8n-supergrok-installer.js";
-import { startWizardServer } from "./web/server.js";
+
+// --version, --help, status, stop and similar commands never start the wizard, so every service
+// below is imported when it is first called. Injected replacements skip the import entirely.
+const lazy = (load, name) => async (...parameters) => (await load())[name](...parameters);
+const controlPlane = () => import("./services/local-dashboard-control.js");
 
 const cliPath = fileURLToPath(import.meta.url);
 const packageJsonUrl = new URL("../package.json", import.meta.url);
@@ -206,19 +198,19 @@ export async function runCli({
   log = console.log,
   readPackage = () => readFile(packageJsonUrl, "utf8"),
   isInteractive = hasInteractiveTerminal,
-  startServer = startWizardServer,
+  startServer = lazy(() => import("./web/server.js"), "startWizardServer"),
   open = openBrowser,
   attachReopen = attachBrowserReopenOnEnter,
-  startControlPlane = startLocalDashboardControlPlane,
-  inspectControlPlane = inspectLocalDashboardControlPlane,
-  stopControlPlane = stopLocalDashboardControlPlane,
-  readBrowserUrl = readLocalDashboardBrowserUrl,
-  runDaemon = runLocalDashboardDaemon,
-  createBrowserLaunchRoot = createPrivateBrowserHandoffRoot,
-  runGrokLogin = runGrokBuildLogin,
-  resolveInstallRoot = resolveLocalInstallRoot,
-  resolveN8nSuperGrokInstallRoot = resolveLocalN8nSuperGrokInstallRoot,
-  runClaude = runClaudeCommand,
+  startControlPlane = lazy(controlPlane, "startLocalDashboardControlPlane"),
+  inspectControlPlane = lazy(controlPlane, "inspectLocalDashboardControlPlane"),
+  stopControlPlane = lazy(controlPlane, "stopLocalDashboardControlPlane"),
+  readBrowserUrl = lazy(controlPlane, "readLocalDashboardBrowserUrl"),
+  runDaemon = lazy(controlPlane, "runLocalDashboardDaemon"),
+  createBrowserLaunchRoot = lazy(() => import("./services/browser-handoff.js"), "createPrivateBrowserHandoffRoot"),
+  runGrokLogin = lazy(() => import("./services/grok-login.js"), "runGrokBuildLogin"),
+  resolveInstallRoot = lazy(() => import("./services/local-installer.js"), "resolveLocalInstallRoot"),
+  resolveN8nSuperGrokInstallRoot = lazy(() => import("./services/local-n8n-supergrok-installer.js"), "resolveLocalN8nSuperGrokInstallRoot"),
+  runClaude = lazy(() => import("./claude/command.js"), "runClaudeCommand"),
 } = {}) {
   const mode = cliMode(argumentsList, { commandName });
   if (mode === "version") {

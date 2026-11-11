@@ -23,8 +23,14 @@ const SAFE_CODES = new Set([
   "launch_cancelled", "launch_failed", "cleanup_failed",
 ]);
 
+// Shown with the refusal code. No paths: this text reaches container logs and the CLI.
+const HINTS = Object.freeze({
+  account_locked: " Another Relmio Claude launcher holds this account, or an earlier one did not stop cleanly." +
+    " Stop every process using this account, then follow the documented lock recovery steps.",
+});
+
 function refusal(code) {
-  return Object.assign(new Error(`Claude launcher refused (${code}).`), { code });
+  return Object.assign(new Error(`Claude launcher refused (${code}).${HINTS[code] ?? ""}`), { code });
 }
 
 function hasKeys(value, required, optional = []) {
@@ -369,7 +375,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     await runClaudeChat({ argv: process.argv.slice(2) });
   } catch (error) {
-    console.error(`Claude launcher refused (${SAFE_CODES.has(error?.code) ? error.code : "launch_failed"}).`);
+    console.error(refusal(SAFE_CODES.has(error?.code) ? error.code : "launch_failed").message);
     process.exitCode = 1;
   }
 }

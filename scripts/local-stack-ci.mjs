@@ -54,7 +54,7 @@ async function composeConfig() {
     const plan = createLocalN8nStackPlan({
       dockerHost: DOCKER_HOST, publicAccess: setup.publicAccess,
       ngrokHostname: ngrok ? "relmio-ci.ngrok-free.app" : null, n8nPort: 5679,
-      ngrokInspectorPort: ngrok ? 4041 : null, timezone: "UTC", assistantMode: setup.assistantMode,
+      timezone: "UTC", assistantMode: setup.assistantMode,
     });
     const installation = createLocalN8nStackInstallation({ plan, randomBytes });
     const secrets = ngrok
@@ -89,6 +89,7 @@ async function composeConfig() {
       if (ngrok && config.services.ngrok.environment.NGROK_AUTHTOKEN.replaceAll("$$", "$") !== ngrokAuthtoken) {
         throw new Error("Compose did not read the escaped ngrok token back exactly.");
       }
+      if (ngrok && config.services.ngrok.ports?.length) throw new Error("The ngrok agent API must not be published.");
       const n8nEnv = config.services.n8n.environment;
       if (!ngrok && (n8nEnv.N8N_HOST !== "localhost" || n8nEnv.N8N_SECURE_COOKIE !== "false")) {
         throw new Error("The private stack does not use the localhost n8n settings.");
@@ -127,7 +128,7 @@ async function live() {
   const homeDirectory = await mkdtemp(join(tmpdir(), "relmio-stack-home-"));
   const plan = createLocalN8nStackPlan({
     dockerHost: DOCKER_HOST, publicAccess: "none", ngrokHostname: null, n8nPort: 5679,
-    ngrokInspectorPort: null, timezone: "UTC", assistantMode: "sandbox",
+    timezone: "UTC", assistantMode: "sandbox",
   });
   let liveError = null;
   try {

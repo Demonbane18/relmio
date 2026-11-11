@@ -2,14 +2,15 @@
 // lookup, model calls or saved question history enter this module.
 export const HELP_METADATA = Object.freeze({
   schema: 1,
-  revision: 1,
-  sourceVersion: "0.24.0",
-  sourceCommit: "9c7f82d854f229b9416354cc9a3eefb87aa93c5d",
-  reviewedOn: "2026-11-05",
+  revision: 2,
+  sourceVersion: "0.25.0",
+  sourceCommit: "364b46516c9e15bab80eca281ba71943a28ffcbb",
+  reviewedOn: "2026-11-10",
   sources: Object.freeze([
     "docs/getting-started.md", "docs/faq.md", "docs/security.md",
     "docs/vps-and-n8n.md", "docs/local-dashboard.md", "docs/troubleshooting.md",
-    "docs/claude-subscription.md", "docs/hosting-compatibility.md",
+    "docs/claude-subscription.md", "docs/hosting-compatibility.md", "docs/maintenance.md",
+    "docs/claude-native-prompt.md",
     "docs/contextual-help-source-check-2026-10-11.md",
   ]),
 });
@@ -43,6 +44,18 @@ export const HELP_FAQ = Object.freeze([
   entry("server", "Why check the server identity?", "Compare the SSH fingerprint with a trusted record before connecting. The guide cannot verify it for you or approve the server.", null),
   entry("install", "Will Show me install anything?", "Show me only highlights a control and moves focus. You still review the destination, background activity and final installation confirmation yourself.", null),
   entry("features", "Where is help for this feature?", "Current step lists this view's controls, including optional features once you open them. Select a tip for its instructions, then choose Show me.", null),
+]);
+
+// Words the tips use, explained with the sentences the tips already use.
+export const HELP_TERMS = Object.freeze([
+  entry("vps", "What is a VPS?", "A VPS is a computer you rent that stays on all day in a data center. Use the hostname or IP address your provider shows for your server.", null),
+  entry("ssh", "What is SSH?", "SSH is the secure way Relmio logs in to your server to run commands. Keep 22 unless your server uses another SSH port.", null),
+  entry("fingerprint", "What is a fingerprint?", "A fingerprint is your server's ID card, a long code that only this server has. Compare it with a copy you trust, then tick the box. If it does not match, stop here.", null),
+  entry("container", "What is a container?", "Docker is the program that runs apps in sealed boxes called containers. A container is a sealed box that runs one app, like n8n.", null),
+  entry("network", "What is a Docker network?", "A Docker network is a private hallway that lets containers talk to each other.", null),
+  entry("api-key", "What is an API key?", "An API key is a password one app uses to talk to another.", null),
+  entry("port", "What is a port?", "A port is like a door number on this computer. Keep the number shown unless another app already uses it.", null),
+  entry("sidecar", "What is a sidecar?", "A sidecar is the small helper Relmio runs next to n8n. n8n itself does not change.", null),
 ]);
 
 // Bounded enum/boolean input only. Priority follows the controls' real state,

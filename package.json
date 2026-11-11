@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Connect provider OAuth sign-in to private local apps and self-hosted n8n.",
   "keywords": [
     "relmio",
@@ -35,11 +35,17 @@
   },
   "files": [
     "src",
+    "!src/ui/relmio-icon.png",
     "scripts/build-npm-package.js",
     "scripts/check-release-metadata.js",
     "scripts/check-syntax.js",
     "scripts/preview.js",
     "docs",
+    "!docs/images/setup",
+    "!docs/images/examples",
+    "!docs/images/diagrams",
+    "!docs/images/brand/relmio-concept-source.png",
+    "npm-shrinkwrap.json",
     "README.md",
     "SPEC.md",
     "CHANGELOG.md",
@@ -60,8 +66,5 @@
     "jose": "6.2.12",
     "ssh2": "1.17.0",
     "ws": "8.22.0"
-  },
-  "devDependencies": {
-    "zod": "4.6.7"
   }
 }

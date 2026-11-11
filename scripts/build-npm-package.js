@@ -54,30 +54,49 @@ export function resolveNpmInvocation({
   };
 }
 
-async function copyPublishEntry({ entry, stagingDirectory }) {
+// Two published files come from a differently named source. npm never publishes
+// package-lock.json; shipped as npm-shrinkwrap.json, the same file makes every install use the
+// reviewed versions of the packages below the direct dependencies.
+const publishSources = new Map([
+  ["README.md", join("npm", "README.md")],
+  ["npm-shrinkwrap.json", "package-lock.json"],
+]);
+
+async function copyPublishEntry({ entry, stagingDirectory, unpublished }) {
   const source = join(sourceRoot, entry);
   const target = join(stagingDirectory, entry);
 
-  if (entry === "README.md") {
-    await copyFile(join(sourceRoot, "npm", "README.md"), target);
+  if (publishSources.has(entry)) {
+    await copyFile(join(sourceRoot, publishSources.get(entry)), target);
     return;
   }
 
-  await cp(source, target, { recursive: true });
+  await cp(source, target, {
+    recursive: true,
+    filter: (path) => !unpublished.has(path),
+  });
 }
 
 export async function stageNpmPackage(stagingDirectory) {
   const packageJson = JSON.parse(
     await readFile(join(sourceRoot, "package.json"), "utf8"),
   );
+  const files = packageJson.files ?? [];
+  // A `!path` entry in `files` stays in the repository but is not published. npm leaves it
+  // out of the tarball; it is not copied into the staging folder either.
+  const unpublished = new Set(
+    files
+      .filter((entry) => entry.startsWith("!"))
+      .map((entry) => join(sourceRoot, entry.slice(1))),
+  );
   const publishEntries = new Set([
     "package.json",
-    ...(packageJson.files ?? []),
+    ...files.filter((entry) => !entry.startsWith("!")),
   ]);
 
   await mkdir(stagingDirectory, { recursive: true });
   for (const entry of publishEntries) {
-    await copyPublishEntry({ entry, stagingDirectory });
+    await copyPublishEntry({ entry, stagingDirectory, unpublished });
   }
   const { packageLock } = await collectSiwcRuntimeAssets();
   await writeFile(join(stagingDirectory, "src", "services", "siwc-runtime-lock.json"), packageLock, {

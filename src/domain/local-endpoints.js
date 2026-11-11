@@ -2,7 +2,8 @@ import { validatePort } from "./validation.js";
 import { getProviderTargetBinding } from "./provider-lifecycle.js";
 import { validateSiwcAuthBinding, validateSiwcRegistrationId } from "./safety.js";
 import packageManifest from "../../package.json" with { type: "json" };
-import { CODEX_CLI_VERSION } from "../gateway/openai-oauth-sidecar.mjs";
+// The constant lives in model-discovery.mjs. Importing it from the gateway would load the whole sidecar server and jose.
+import { CODEX_CLI_VERSION } from "../services/model-discovery.mjs";
 
 export const GROK_BUILD_CLI_VERSION = "1.0.13";
 export const GROK_BUILD_REQUIREMENTS_TOML = [

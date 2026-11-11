@@ -6,6 +6,7 @@ import {
   PRECHECK_COMMAND,
   SHARED_ROOT_MARKER_CONTENT,
   SHARED_ROOT_MARKER_PATH,
+  SHARED_ROOT_TIGHTEN_COMMAND,
   SIDECAR_MARKER_CONTENT,
   SIDECAR_BUILD_IGNORE_PATH,
   SIDECAR_BUILD_IGNORE_CONTENT,
@@ -37,6 +38,7 @@ import { validateDockerName } from "../domain/validation.js";
 import { readCodexImagesCliResult } from "../domain/codex-images.js";
 
 import { VPS_OPERATION_LOCKS, inspectVpsResumeLockCommand } from "../domain/vps-build-state.js";
+import { assertVpsNetworkSupported } from "../domain/vps-network.js";
 import { withVpsOperationLock } from "./vps-operation-lock.js";
 import { collectSiwcRuntimeAssets } from "./siwc-runtime-assets.js";
 import {
@@ -57,7 +59,7 @@ const DOCKER_ID = /^[a-f0-9]{64}$/u;
 const IMAGE_ID = /^sha256:[a-f0-9]{64}$/u;
 const RUNTIME_UPDATE_PENDING = "Finish the interrupted sidecar update from Manage the installed ChatGPT session.";
 
-export async function reviewVpsSiwcTarget({ remote, networkName, containerName }) {
+export async function reviewVpsSiwcTarget({ remote, networkName, containerName, requireSupportedNetwork = false }) {
   const network = validateDockerName(networkName);
   const name = validateDockerName(containerName);
   if (!remote?.identity) throw new Error("Verify the selected VPS before reviewing n8n.");
@@ -78,6 +80,8 @@ export async function reviewVpsSiwcTarget({ remote, networkName, containerName }
       containerRecord?.NetworkSettings?.Networks?.[network]?.NetworkID !== networkId) {
     throw new Error("The selected running n8n container or network identity could not be verified.");
   }
+  // A plan review refuses a network on which a new sidecar could certainly not be reached or get out.
+  if (requireSupportedNetwork) assertVpsNetworkSupported(networkRecord);
   return Object.freeze({ n8nContainerId, networkId });
 }
 
@@ -138,6 +142,13 @@ async function runOrThrow(remote, command, label, input) {
     );
   }
   return result;
+}
+
+// Sets an existing shared folder to mode 0700. Call it only in a path that has checked the
+// owner's final confirmation, after that path has re-attested what it is about to change.
+// Status reads, sign-in polls and cancels never call it.
+async function tightenSharedFolder(remote) {
+  await runOrThrow(remote, SHARED_ROOT_TIGHTEN_COMMAND, "Shared folder permission check");
 }
 
 function modelCheckFailure(result) {
@@ -408,6 +419,8 @@ export async function reconcileVpsSiwcHandoff({
         });
       }
       await assertNoVpsOneOffContainers(remote);
+      // Confirmed above; the frozen installation is the reviewed one.
+      await tightenSharedFolder(remote);
       staging.checkpoint.notAccepted = true;
       await publishCheckpoint(remote, staging.checkpoint, staging.checkpoint.stage);
     }, { resumeIdentity: lock === "none" ? undefined : lock });
@@ -1063,17 +1076,9 @@ export async function reviewVpsLegacyMigration({
   });
 }
 
-export async function reviewVpsSiwcReplacement({
-  remote, networkName, reviewedTarget, allowStaged = false,
-}) {
-  validateReviewedTarget(remote, reviewedTarget, networkName);
-  await reattestReviewedTarget(remote, reviewedTarget);
+// The owner's own facts, for a target and a staging record the caller read in this request.
+async function attestOwnedSidecar(remote, networkName, reviewedTarget, staging) {
   const verification = createVerificationCommands();
-  await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "Owned SIWC context check");
-  const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: allowStaged });
-  if (!staging || (!allowStaged && staging.checkpoint.stage !== "complete")) {
-    throw new Error("The VPS SIWC installation is not finalized. Review resume instead.");
-  }
   await attestStagedFiles(remote, staging.checkpoint);
   const config = parseHandoffOutput(
     (await runOrThrow(remote, verification.managementConfig, "Sidecar Compose ownership check")).stdout,
@@ -1097,11 +1102,26 @@ export async function reviewVpsSiwcReplacement({
   return Object.freeze({ registrationId, ...owner, networkName, networkId: reviewedTarget.networkId });
 }
 
-export async function getVpsSiwcInstallationStatus({
-  remote, networkName, reviewedTarget,
-}, { collectAssets = collectSiwcRuntimeAssets } = {}) {
+export async function reviewVpsSiwcReplacement({
+  remote, networkName, reviewedTarget, allowStaged = false,
+}) {
   validateReviewedTarget(remote, reviewedTarget, networkName);
   await reattestReviewedTarget(remote, reviewedTarget);
+  await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "Owned SIWC context check");
+  const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: allowStaged });
+  if (!staging || (!allowStaged && staging.checkpoint.stage !== "complete")) {
+    throw new Error("The VPS SIWC installation is not finalized. Review resume instead.");
+  }
+  return attestOwnedSidecar(remote, networkName, reviewedTarget, staging);
+}
+
+// `targetAttested` is for a caller that attested this n8n target in the same request, such as the
+// status route. Every other caller holds an earlier review, which is attested again here.
+export async function getVpsSiwcInstallationStatus({
+  remote, networkName, reviewedTarget, targetAttested = false,
+}, { collectAssets = collectSiwcRuntimeAssets } = {}) {
+  validateReviewedTarget(remote, reviewedTarget, networkName);
+  if (targetAttested !== true) await reattestReviewedTarget(remote, reviewedTarget);
   const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
   if (staging && staging.checkpoint.stage !== "complete") {
     const { installId, registrationId, stage } = staging.checkpoint;
@@ -1119,7 +1139,10 @@ export async function getVpsSiwcInstallationStatus({
   if (state.stdout.trim() !== "managed") {
     throw new Error("The VPS sidecar ownership state is invalid.");
   }
-  const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+  // The target and the staging record were read above, so only the owner's own facts follow.
+  if (!staging) throw new Error("The VPS SIWC installation is not finalized. Review resume instead.");
+  await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "Owned SIWC context check");
+  const owner = await attestOwnedSidecar(remote, networkName, reviewedTarget, staging);
   const { registrationId } = owner;
   if (!owner.running) return { state: "stopped", registrationId };
   const account = await attestLiveAccount(remote, registrationId);
@@ -1194,7 +1217,7 @@ export async function updateVpsSiwcRuntime(
   validateReviewedTarget(remote, reviewedTarget, networkName);
   const verification = createVerificationCommands();
   const deploymentCommands = createDeploymentCommands();
-  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, ...deploymentCommands.slice(1),
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, SHARED_ROOT_TIGHTEN_COMMAND, ...deploymentCommands.slice(1),
     ...Object.values(verification)]);
   const files = managedRuntimeFiles(await collectAssets());
   const imageSourceSha256 = imageSourceDigest(files);
@@ -1229,6 +1252,8 @@ export async function updateVpsSiwcRuntime(
     checkpoint.files = { ...checkpoint.files,
       ...Object.fromEntries([...files].map(([path, contents]) => [path, sha256(contents)])) };
     checkpoint.reviewedTarget = Object.fromEntries(TARGET_FIELDS.map(field => [field, reviewedTarget[field]]));
+    // Confirmed above; the installed sidecar is the reviewed one. This is the update's first write.
+    await tightenSharedFolder(remote);
     await publishCheckpoint(remote, checkpoint, "context");
 
     const inspectContainer = async () => parseHandoffOutput((await runOrThrow(remote,
@@ -1393,7 +1418,7 @@ export async function manageVpsSiwcInstallation({
   validateReviewedTarget(remote, reviewedTarget, networkName);
   const verification = createVerificationCommands();
   const startCommand = createDeploymentCommands().at(-1);
-  assertSidecarOnlyCommands([PRECHECK_COMMAND, startCommand, ...Object.values(verification)]);
+  assertSidecarOnlyCommands([PRECHECK_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND, startCommand, ...Object.values(verification)]);
   const reviewedOwner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
   if (reviewedOwner.registrationId !== registrationId) {
     throw new Error("The installed SIWC account differs from the reviewed selection.");
@@ -1418,6 +1443,8 @@ export async function manageVpsSiwcInstallation({
       throw new Error("This installed account needs a fresh authorized SIWC sign-in before plan use can resume.");
     }
     await reattestReviewedTarget(remote, reviewedTarget);
+    // Confirmed above; the owner and its account are the reviewed ones. The change starts here.
+    await tightenSharedFolder(remote);
     if (action === "sign-out") {
       // Best effort while the sidecar still runs: a later sign-in on this store must not inherit the image
       // sign-in or model checks. A sidecar from before an add-on lacks its module, so every outcome is ignored.
@@ -1522,12 +1549,14 @@ export async function changeVpsCodexImages({
   validateReviewedTarget(remote, reviewedTarget, networkName);
   const verification = createVerificationCommands();
   const command = verification[CODEX_IMAGES_COMMANDS[action]];
-  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, command, ...Object.values(verification)]);
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, SHARED_ROOT_TIGHTEN_COMMAND, command, ...Object.values(verification)]);
   return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, async () => {
     if (fullReview) {
       const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
       if (owner.registrationId !== registrationId || !owner.running ||
           owner.containerId !== expectedContainerId) throw new Error(CODEX_IMAGES_CHANGED);
+      // Only sign-in start and sign-out reach here, and both checked the final confirmation above.
+      await tightenSharedFolder(remote);
     } else {
       // Polling stays light: the exact running container of the attested owner image.
       await reattestReviewedTarget(remote, reviewedTarget);
@@ -1645,11 +1674,13 @@ export async function changeVpsModelChecks({
   validateReviewedTarget(remote, reviewedTarget, networkName);
   const verification = createVerificationCommands();
   const command = enabled ? verification.modelChecksOn : verification.modelChecksOff;
-  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, ...Object.values(verification)]);
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, SHARED_ROOT_TIGHTEN_COMMAND, ...Object.values(verification)]);
   return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, async () => {
     const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
     if (owner.registrationId !== registrationId || !owner.running ||
         owner.containerId !== expectedContainerId) throw new Error("The installed sidecar changed. Check models again.");
+    // Confirmed above; the running sidecar is the reviewed one.
+    await tightenSharedFolder(remote);
     // checks-on probes up to 12 models within the CLI's own 180 s deadline; the SSH deadline outlasts it.
     return { ...await runModelDiscoveryCommand(remote, command, { timeoutMs: enabled ? 360_000 : 90_000 }),
       containerId: expectedContainerId };

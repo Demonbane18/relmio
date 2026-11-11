@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { validateDockerName, validateHostname, validatePort, validateUsername } from "../domain/validation.js";
 import { validateDockerObjectId } from "../domain/local-n8n-sidecar.js";
 import { validateInstallId } from "../domain/local-endpoints.js";
-import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
+import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
 import { VPS_OPERATION_LOCKS } from "../domain/vps-build-state.js";
 import {
   CLAUDE_COMPANION, buildClaudeCompanionBundle, claudeArchFromMachine, claudeCompanionPin,
@@ -77,6 +77,11 @@ async function run(remote, command, input) {
   return result.stdout.trim();
 }
 
+// Sets an existing shared folder to mode 0700. Only renew, signOut and remove call it. Each runs
+// from applyVpsClaude after it checked the owner's final confirmation and re-attested the
+// companion under the lock. Status reads and the sign-in and model checks never call it.
+const tightenSharedFolder = (remote) => run(remote, SHARED_ROOT_TIGHTEN_COMMAND);
+
 // login.sh's environment without a terminal; status checks also skip nonessential traffic, like renew.sh.
 function claudeCommand(container, args) {
   const quiet = args === "auth status --json" ? " CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" : "";
@@ -143,7 +148,22 @@ function composeVolume(volume) {
     volume.Labels["com.docker.compose.volume"] === "claude-account";
 }
 
-// The template's hardening, this installation's key hash and network; `running` excludes a restart loop.
+// Docker reports Running: true while a container restarts, so the restart flags are read first.
+// Health "starting" covers the first minute after every start and counts as running.
+function containerState(container) {
+  if (!container) return "missing";
+  const state = container.State ?? {};
+  if (state.Restarting === true || state.Status === "restarting") return "restarting";
+  if (state.Running !== true) return "stopped";
+  return state.Health?.Status === "unhealthy" ? "unhealthy" : "running";
+}
+
+// Commands can run inside a companion that is up, whether or not its health check passes.
+const reachable = (container) => ["running", "unhealthy"].includes(containerState(container));
+const NOT_RUNNING = "The Claude companion is stopped or restarting. If its approval expired, renew it. Otherwise inspect its logs and follow the documented lock recovery steps. Replacing it keeps the sign-in and any account lock.";
+
+// The template's hardening, this installation's key hash and network. `running` also needs a companion
+// that can run commands: a stopped or restarting one is a state to repair, with its own sentence.
 function attestCompanion(container, marker, { running = true } = {}) {
   const host = container?.HostConfig;
   const networks = container?.NetworkSettings?.Networks ?? {};
@@ -154,7 +174,6 @@ function attestCompanion(container, marker, { running = true } = {}) {
   const launch = mounts.find((mount) => mount.Type === "bind");
   if (!companionOf(container) || !container.Config.Env?.includes(`RELMIO_CLAUDE_CHAT_TOKEN_SHA256=${marker.tokenSha256}`) ||
     container.Config.Image !== IMAGE || container.Config.User !== "10001:10001" ||
-    (running && (container.State?.Running !== true || container.State.Restarting === true)) ||
     Object.keys(networks).length !== 1 || !networks[marker.network]?.Aliases?.includes(CLAUDE_COMPANION.alias) ||
     Object.values(container.NetworkSettings?.Ports ?? {}).some((value) => value !== null) || Object.keys(host?.PortBindings ?? {}).length ||
     host?.ReadonlyRootfs !== true || !host.CapDrop?.includes("ALL") || !host.SecurityOpt?.includes("no-new-privileges:true") ||
@@ -162,11 +181,7 @@ function attestCompanion(container, marker, { running = true } = {}) {
     launch?.Source !== `${ROOT}/launch.json` || launch.Destination !== "/run/relmio/launch.json" || launch.RW !== false) {
     throw fail();
   }
-}
-
-function containerState(container) {
-  if (!container) return "missing";
-  return container.State?.Running === true && container.State.Restarting !== true ? "running" : "stopped";
+  if (running && !reachable(container)) throw new Error(NOT_RUNNING);
 }
 
 // Anything Relmio cannot recognize is "invalid" and refused; only Docker or SSH failures throw.
@@ -389,8 +404,8 @@ async function deploy(remote, plan, build, status, { now, entropy }) {
     const up = await remote.exec(`${COMPOSE} up -d --wait --wait-timeout 180 --no-build --force-recreate ${NAME}`);
     if (up.code !== 0) throw new Error("The Claude companion did not become healthy. Check its status, then replace or remove it.");
     const container = await inspectOptional(remote, "container", NAME);
-    attestCompanion(container, marker);
-    if (container.State?.Health?.Status !== "healthy") throw fail();
+    attestCompanion(container, marker, { running: false });
+    if (containerState(container) !== "running" || container.State.Health?.Status !== "healthy") throw fail();
     return { state: "installed", clientKey: bundle.key, expiresAt: bundle.expiresAt };
   } catch (error) {
     if (!wrote) throw error;
@@ -402,19 +417,21 @@ async function deploy(remote, plan, build, status, { now, entropy }) {
 
 async function renew(remote, status, now) {
   // An expired approval keeps the launcher in a restart loop, so its login can only be checked while it runs.
-  if (containerState(status.container) === "running") {
+  if (reachable(status.container)) {
     const auth = await readAuthStatus(remote, status.container);
     if (auth.loggedIn !== true || auth.authMethod !== "claude.ai") {
       throw new Error("The companion is not signed in to a Claude plan. Run the sign-in command, then renew.");
     }
   }
   const renewed = renewClaudeLaunchConfig(status.launchConfig, now);
+  await tightenSharedFolder(remote);
   await run(remote, createVpsClaudeLaunchWriteCommand(), `${JSON.stringify(renewed, null, 2)}\n`);
   await run(remote, `${COMPOSE} restart ${NAME}`);
   return { state: "installed", expiresAt: renewed.qualification.expiresAt };
 }
 
 async function signOut(remote, status) {
+  await tightenSharedFolder(remote);
   const logout = await remote.exec(claudeCommand(status.container, "auth logout"));
   if (logout.code !== 0) throw new Error("Claude sign-out did not finish. Check its status and try again.");
   if ((await readAuthStatus(remote, status.container)).loggedIn) {
@@ -424,6 +441,7 @@ async function signOut(remote, status) {
 }
 
 async function remove(remote, status) {
+  await tightenSharedFolder(remote);
   if (status.container) await run(remote, `docker rm -f ${validateDockerObjectId(status.container.Id, "Claude companion")}`);
   if (status.volume) await run(remote, `docker volume rm ${VOLUME}`);
   await run(remote, REMOVE_ROOT);
@@ -438,7 +456,7 @@ export async function applyVpsClaude({ remote, plan, confirmed }, { now = Date.n
   if (deploys) {
     if (!validModels(plan.models)) throw fail();
     await requirePrecheck(remote);
-    await run(remote, `${parentGuard} && install -d -m 0755 ${INSTALL_ROOT} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (set -C; printf '%s\\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi`);
+    await run(remote, `${SHARED_ROOT_COMMAND} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (set -C; printf '%s\\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi`);
   }
   return withVpsOperationLock(remote, LOCK, async (build) => {
     const status = await inspectClaude(remote, now);

@@ -209,12 +209,18 @@
 .hosting-capability {
   color: var(--rm-ink-muted);
   font-size: var(--rm-text-sm);
-  line-height: 1.5;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .hosting-capability > .rm-badge {
   margin-inline-end: var(--rm-space-1);
+}
+
+/* The root sign-in note reads as a warning through its words; color supports it. */
+.hosting-capability__root {
+  color: var(--rm-warning);
+  font-weight: 600;
 }
 
 .hosting-notes-trigger {
@@ -387,21 +393,31 @@
   }
 }
 
-/* From 1024 to 1279px: a tighter shell and five narrower field columns keep
-   long plan forms on one screen. */
-@media (min-width: 64rem) and (max-width: 79.99rem) {
+/* From 1024 to 1279px wide, and in windows under 768px tall such as
+   1280 x 720: a tighter shell keeps long plan forms, and step 1 with its
+   longest capability note, on one screen. */
+@media (min-width: 64rem) and (max-width: 79.99rem),
+  (min-width: 64rem) and (min-height: 37.5rem) and (max-height: 47.99rem) {
   .hosting-shell {
     gap: var(--rm-space-2);
     padding-block: var(--rm-space-1);
   }
 
+  .hosting-view .rm-panel__header {
+    padding-top: var(--rm-space-2);
+    padding-bottom: var(--rm-space-2);
+  }
+}
+
+/* From 1024 to 1279px: five narrower field columns, and slimmer matrix cells
+   so the availability table fits its column without scrolling sideways. */
+@media (min-width: 64rem) and (max-width: 79.99rem) {
   .hosting-fields {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
     gap: var(--rm-space-2) var(--rm-space-3);
   }
 
-  .hosting-view .rm-panel__header {
-    padding-top: var(--rm-space-2);
-    padding-bottom: var(--rm-space-2);
+  .hosting-matrix :is(th, td) {
+    padding-inline: 0.5rem;
   }
 }

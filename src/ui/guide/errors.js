@@ -1,15 +1,28 @@
 // Error help for the setup guide. Facts come from docs/troubleshooting.md, docs/vps-and-n8n.md,
-// docs/local-models.md and docs/local-n8n-stack.md. The engine checks boolean flags, then
+// docs/hosting-compatibility.md, docs/maintenance.md, docs/local-models.md and
+// docs/local-n8n-stack.md. The engine checks boolean flags, then
 // codes[code | errorCode | stoppedReason], then recovery, then status, then fallback.
+// Each code gets one entry: a title, one sentence and at most three steps.
 
+const onServerPages = (selector) => Object.fromEntries(
+  ["vps", "assistant", "supergrok-vps", "claude-vps", "local-model-vps"].map((page) => [page, selector]));
 const MODEL_RETRY = { local: "#local-model-review-retry", "local-model-vps": "#review-retry" };
 const FINGERPRINT = {
   vps: "#fingerprint-button",
   assistant: "#fingerprint-button",
   "supergrok-vps": "#scan-button",
+  "claude-vps": "#scan-button",
   "local-model-vps": "#scan",
 };
 const USAGE = { vps: "#global-error-recovery", local: "#global-error-recovery" };
+const SIGN_IN = onServerPages("#username");
+const NETWORK = { ...onServerPages("#network"), vps: "#network-select", assistant: "#network-select" };
+
+// Which setups need root, and the rule about the server's SSH policy.
+const ROOT_ONLY = "The ChatGPT, Assistant, SuperGrok and Claude setups need a direct root sign-in. Only the Local model setup also accepts another account, with passwordless sudo -n.";
+const SSH_RULES = "Leave the server's SSH rules as they are. Relmio never asks anyone to turn on root or password sign-in.";
+const AGAIN = "Then try this step again.";
+const PAGE_MESSAGE = "Then follow the message on the page. It names the next action for this setup.";
 
 const usageLimit = {
   title: "Usage limit reached",
@@ -88,7 +101,7 @@ export const GUIDE_ERRORS = {
       steps: [
         "Press Allow ChatGPT plan use.",
         "Approve it on the ChatGPT page.",
-        "Read the plan notice and press Continue.",
+        "Read the plan notice and press Got it.",
       ],
       targets: { vps: "[data-siwc=grant]", local: "[data-siwc=grant]" },
     },
@@ -136,7 +149,7 @@ export const GUIDE_ERRORS = {
     oauthRetryBlocked: signInBlocked,
     remoteOutcomeUnknown: {
       title: "Result unknown",
-      say: "A server command ran out of time, so Relmio cannot tell whether it finished. It does not retry on its own.",
+      say: "A server command ran out of time or lost its connection, so Relmio cannot tell whether it finished. It does not retry on its own.",
       steps: [
         "Do not repeat the step yet.",
         "Check the server first, or ask its administrator.",
@@ -173,25 +186,225 @@ export const GUIDE_ERRORS = {
       ],
       targets: { local: "#ngrok-authtoken" },
     },
-    NO_RUNNING_N8N: {
-      title: "No running n8n found",
-      say: "Relmio could not find a running n8n on this server. You can still check a model Relmio installed earlier.",
-      steps: [
-        "Start n8n the way you normally do, then connect again.",
-        "Or type the original n8n container and network names.",
-        "Press Inspect owned model.",
-      ],
-      targets: { "local-model-vps": "#manual-container" },
-    },
     ssh_identity_review_required: {
       title: "Check the server again",
       say: "The server identity check was already used or no longer matches. Relmio needs a fresh check before it connects.",
       steps: [
-        "Press the server identity check again.",
+        "Press Check this server again.",
         "Compare the new fingerprint with your trusted copy.",
         "Tick the box, then connect.",
       ],
       targets: FINGERPRINT,
+    },
+    ssh_root_login_disabled: {
+      title: "This server turns off root sign-in",
+      say: "The server refused root and named another account to sign in with.",
+      steps: [
+        "For a local model, use the Local model setup: type that account as the sign-in name and choose Passwordless sudo -n.",
+        ROOT_ONLY,
+        SSH_RULES,
+      ],
+      targets: SIGN_IN,
+    },
+    ssh_not_root: {
+      title: "This account is not root",
+      say: "The sign-in worked, but this account is not root, the server's main administrator account.",
+      steps: [
+        "If this server already lets you sign in as root, type root as the sign-in name and connect again.",
+        ROOT_ONLY,
+        SSH_RULES,
+      ],
+      targets: { ...SIGN_IN, "local-model-vps": "#ssh-privilege" },
+    },
+    ssh_auth_refused: {
+      title: "The server refused this sign-in",
+      say: "The server did not accept this sign-in name with the password or SSH key that was offered.",
+      steps: [
+        "Check the sign-in name and the password. For a key, load it with ssh-add before you start Relmio, then choose Local SSH agent.",
+        ROOT_ONLY,
+        SSH_RULES,
+      ],
+      targets: SIGN_IN,
+    },
+    vps_prereq_linux: {
+      title: "Not a Linux server",
+      say: "Relmio manages Docker on a Linux server, and this sign-in reached another kind of system, such as a single service container.",
+      steps: [
+        "Use the address of the Linux server that runs Docker and n8n.",
+        "For other kinds of hosting, open Hosting options to see what Relmio can prepare.",
+      ],
+      targets: onServerPages("#host"),
+    },
+    vps_prereq_uid: {
+      title: "No administrator rights on the server",
+      say: "The server check did not run as root, which Relmio needs to manage Docker there.",
+      steps: [
+        "With Passwordless sudo -n, check on the server that sudo -n true works for this account without asking for a password.",
+        ROOT_ONLY,
+        "Relmio never asks for a sudo password and never edits sudoers.",
+      ],
+      targets: { ...SIGN_IN, "local-model-vps": "#ssh-privilege" },
+    },
+    vps_prereq_tools: {
+      title: "Standard Linux tools are missing",
+      say: "Relmio checks its own files with standard GNU tools, and one of them is missing or unreadable on this server.",
+      steps: [
+        "On the server, check that GNU dd, stat, find, awk and sha256sum are installed and that /proc/self/mountinfo can be read.",
+        "Systems built on BusyBox are not supported.",
+        AGAIN,
+      ],
+    },
+    vps_prereq_docker_dir: {
+      title: "The server needs a /docker folder",
+      say: "Relmio keeps its files under /docker on the server and does not create that folder itself.",
+      steps: [
+        "Sign in to your own server and run: sudo install -d -o root -g root -m 0755 /docker",
+        "If /docker is already there, it must be a real folder owned by root that only root can write to.",
+        AGAIN,
+      ],
+    },
+    vps_prereq_docker_cli: {
+      title: "Docker was not found",
+      say: "Relmio found no docker command it can trust for the account that signed in.",
+      steps: [
+        "Install Docker Engine with its Compose plugin from Docker's own packages. Docker installed as a snap is not found.",
+        "The docker program must be owned by root and writable only by root.",
+        AGAIN,
+      ],
+    },
+    vps_prereq_docker_context: {
+      title: "Docker points at another engine",
+      say: "Docker for this account is set to a remote, custom or rootless engine, and Relmio works only with the standard local one.",
+      steps: [
+        "On the server, run docker context show. Relmio needs the answer default.",
+        "Review any DOCKER_HOST or DOCKER_CONTEXT setting for this account before you change it.",
+        "Relmio does not switch the context for you. Try this step again once it is set.",
+      ],
+    },
+    vps_prereq_docker_engine: {
+      title: "Docker is not running",
+      say: "Relmio could not reach a running Docker Engine through the server's standard socket.",
+      steps: [
+        "On the server, run docker info. It must answer without an error.",
+        "Start Docker Engine if it is stopped.",
+        AGAIN,
+      ],
+    },
+    vps_prereq_compose: {
+      title: "Docker Compose is missing",
+      say: "Relmio starts its helpers with Docker Compose, and docker compose did not work on this server.",
+      steps: [
+        "On the server, run docker compose version. It must print a version.",
+        "Install or repair the Compose plugin from Docker's own packages.",
+        AGAIN,
+      ],
+    },
+    vps_prereq_builder_config: {
+      title: "Custom Docker build settings found",
+      say: "This account sets a custom Docker build option, and Relmio builds only with Docker's built-in default builder.",
+      steps: [
+        "On the server, look in the account's environment for BUILDX_BUILDER, BUILDX_CONFIG, BUILDKIT_HOST, DOCKER_CONFIG and COMPOSE_BAKE.",
+        "DOCKER_BUILDKIT may be unset, empty or 1, never 0.",
+        "Review each setting before you remove it, then connect again.",
+      ],
+    },
+    vps_prereq_default_builder: {
+      title: "Docker's default builder is not selected",
+      say: "Docker on this server has a saved builder choice that Relmio cannot confirm as the built-in default.",
+      steps: [
+        "Ask the server's administrator to review the saved Buildx builder selection for this account.",
+        "Do not check it with docker buildx inspect. That command can write state and show secrets.",
+        "Relmio does not switch or reset builders. Connect again once the default builder is selected.",
+      ],
+    },
+    vps_prereq_rootless: {
+      title: "Rootless Docker is not supported",
+      say: "This server runs rootless Docker or Podman, and Relmio manages only the standard Docker Engine that runs as root.",
+      steps: [
+        "Use a server with the standard Docker Engine.",
+        "Relmio does not change how Docker is installed.",
+      ],
+    },
+    vps_prereq_probe: {
+      title: "The server check did not pass",
+      say: "Relmio could not confirm administrator rights and a standard Docker setup on this server.",
+      steps: [
+        "Check that this account is root, or for a local model that sudo -n works without asking for a password.",
+        "On the server, check that docker info and docker compose version both work.",
+        AGAIN,
+      ],
+    },
+    vps_operation_lock: {
+      title: "An earlier action left a lock",
+      say: "Relmio holds a lock on the server while it works, and a lock from another action or an interrupted one is still there.",
+      steps: [
+        "If another Relmio action is running on this server, wait for it to finish.",
+        "Leave the lock files alone. Deleting them can hide work that stopped halfway.",
+        "Otherwise ask the server's administrator to inspect the lock under /docker/n8n-openai-oauth, as Maintenance in the Relmio docs describes.",
+      ],
+    },
+    vps_network_unsupported: {
+      title: "This Docker network cannot be used",
+      say: "On the selected Docker network n8n could not find the Relmio helper by name, or the helper could not reach the internet.",
+      steps: [
+        "Choose another network in the list if n8n is on more than one.",
+        "Otherwise attach n8n to a user-defined Docker network yourself. Relmio does not change n8n.",
+        "Then check again.",
+      ],
+      targets: NETWORK,
+    },
+    vps_step_compose_config: {
+      title: "Docker Compose refused the files",
+      say: "Docker Compose on this server did not accept the files Relmio wrote for the helper.",
+      steps: [
+        "On the server, run docker compose version. An old Compose plugin is one possible cause.",
+        PAGE_MESSAGE,
+        "n8n was not changed.",
+      ],
+    },
+    vps_step_build: {
+      title: "The helper image did not build",
+      say: "Docker could not build the helper's image on this server.",
+      steps: [
+        "Check that the server has free disk space and can reach the internet.",
+        "If the server check warned that Buildx is missing, install Docker's Buildx plugin.",
+        PAGE_MESSAGE,
+      ],
+    },
+    vps_step_start: {
+      title: "The helper did not start in time",
+      say: "The helper's container did not start and report healthy in the time Relmio waits.",
+      steps: [
+        "A first start can be slow on a small server, so check its free memory.",
+        PAGE_MESSAGE,
+        "n8n was not changed.",
+      ],
+    },
+    vps_step_image_check: {
+      title: "The built image was not found",
+      say: "Docker could not show the helper's image right after the build.",
+      steps: [
+        "Follow the message on the page. It names the next action for this setup.",
+        "If it repeats, keep the error text and report it.",
+      ],
+    },
+    vps_host_unsupported_cpu: {
+      title: "This server's processor is not supported",
+      say: "This setup needs a 64-bit Intel or AMD (x86_64) or ARM (aarch64) server, and this one reports another type.",
+      steps: [
+        "Use a server with one of those processors for this setup.",
+        "Nothing was changed on this server.",
+      ],
+    },
+    install_unconfirmed: {
+      title: "Install not confirmed",
+      say: "The install stopped before Relmio could confirm it, so part of it may be left on this computer.",
+      steps: [
+        "Read the error message on the page.",
+        "Press Back to dashboard and look under Connections for a leftover connection. Manage or remove it there.",
+        "Then come back and review the plan again. Your settings are kept.",
+      ],
+      targets: { local: "#setup-back-to-dashboard" },
     },
     subscription_sharing_usage_limit_exceeded: usageLimit,
     subscription_sharing_user_not_eligible: {
@@ -331,9 +544,13 @@ export const GUIDE_ERRORS = {
       ],
     },
     403: {
-      title: "Request blocked",
-      say: "Relmio accepts requests only from its own wizard page.",
-      steps: ["Close old wizard tabs.", "Run relmio open to get a fresh page."],
+      title: "This action is not allowed here",
+      say: "Relmio refused this action for this page or session, and the message on the page gives the reason.",
+      steps: [
+        "Read the error message on the page.",
+        "If it names a model-only session, disconnect and connect with a root sign-in the server already allows.",
+        "If this is an old wizard tab, close it and run relmio open.",
+      ],
     },
     404: {
       title: "Not found",

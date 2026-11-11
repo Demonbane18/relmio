@@ -697,7 +697,7 @@ function createRetryableStackStartupError(failureKind) {
   });
 }
 
-function validatePublication(value, { hostPort, targetPort, requirePublication }) {
+function validatePublication(value, { hostPort, targetPort }) {
   const publishers = value?.Publishers;
   if (!Array.isArray(publishers) || publishers.length !== 1) {
     throw new Error("Local n8n host publication verification failed closed.");
@@ -706,7 +706,7 @@ function validatePublication(value, { hostPort, targetPort, requirePublication }
   if (
     !publisher || publisher.URL !== "127.0.0.1" ||
     publisher.PublishedPort !== hostPort || publisher.TargetPort !== targetPort ||
-    publisher.Protocol !== "tcp" || !requirePublication
+    publisher.Protocol !== "tcp"
   ) throw new Error("Local n8n host publication verification failed closed.");
 }
 
@@ -779,10 +779,10 @@ async function verifyRunningStack({ runProcess, cwd, marker }) {
       throw createTypedStartupFailure(failureKind, message);
     }
     try {
-      if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678, requirePublication: true });
-      else if (service === "ngrok") validatePublication(rows[0], { hostPort: marker.ngrokInspectorPort, targetPort: 4040, requirePublication: true });
-      else if (!isUnpublishedAssistantService(rows[0]?.Publishers)) {
-        throw new Error("An Assistant service published an unexpected host port.");
+      if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678 });
+      else if (!hasNoHostPublication(rows[0]?.Publishers) &&
+        !(service === "ngrok" && marker.schemaVersion !== 3 && isLegacyInspectorPublication(rows[0].Publishers))) {
+        throw new Error("A stack service published an unexpected host port.");
       }
     } catch {
       throw createTypedStartupFailure(failureKind, message);
@@ -916,15 +916,23 @@ async function verifySearxngSearch({ runProcess, cwd, marker }) {
   }
 }
 
-// Images declare ports (the sandbox runner's Docker-in-Docker declares 2375 and 2376); that is fine.
-// The isolation property is that none of them is bound on the host.
-function isUnpublishedAssistantService(publishers) {
+// Images declare ports (ngrok declares 4040; the sandbox runner's Docker-in-Docker declares 2375 and 2376);
+// that is fine. The isolation property is that none of them is bound on the host.
+function hasNoHostPublication(publishers) {
   if (!Array.isArray(publishers)) return false;
   return publishers.every((publisher) => (
     publisher && publisher.URL === "" && publisher.PublishedPort === 0 &&
     Number.isInteger(publisher.TargetPort) && publisher.TargetPort > 0 &&
     (publisher.Protocol === "tcp" || publisher.Protocol === "udp")
   ));
+}
+
+// Relmio 0.24.0 and earlier published the ngrok agent API on host loopback. Those stacks keep it
+// until they are removed and set up again; the stored port is not used.
+function isLegacyInspectorPublication(publishers) {
+  const publisher = Array.isArray(publishers) && publishers.length === 1 ? publishers[0] : null;
+  return publisher?.URL === "127.0.0.1" && publisher.TargetPort === 4040 && publisher.Protocol === "tcp" &&
+    Number.isInteger(publisher.PublishedPort) && publisher.PublishedPort > 0 && publisher.PublishedPort <= 65_535;
 }
 
 function runningStackServiceNames(marker) {
@@ -1152,7 +1160,6 @@ function createLocalN8nStackStatusSnapshot(marker, state) {
     endpoints: Object.freeze({
       n8nLocal: localUrl,
       ngrokPublic: ngrokPublicUrl,
-      ngrokInspector: safe.publicAccess === "ngrok" ? `http://127.0.0.1:${safe.ngrokInspectorPort}` : null,
     }),
     components: Object.freeze({
       n8n: true,
@@ -2076,9 +2083,7 @@ function toSanitizedResult(marker) {
       sandboxUrl: "http://relmio-sandbox-api:8080",
       ...(marker.assistantMode === "sandbox-with-searxng" ? { searxngUrl: "http://relmio-searxng:8080" } : {}),
     },
-    hostPublication: marker.publicAccess === "ngrok"
-      ? `n8n http://127.0.0.1:${marker.n8nPort}; ngrok inspector http://127.0.0.1:${marker.ngrokInspectorPort}`
-      : `n8n http://127.0.0.1:${marker.n8nPort}`,
+    hostPublication: `n8n http://127.0.0.1:${marker.n8nPort}`,
     deploymentMode: "new-disposable-stack",
     assistantMode: marker.assistantMode,
   });

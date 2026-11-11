@@ -5,13 +5,29 @@ import {
 } from "../domain/vps-build-state.js";
 
 const validIdentity = value => typeof value === "string" && /^\d+:\d+$/u.test(value);
-const recoveryMessage = lock => `Temporary build state or the operation lock could not be safely removed. An administrator must inspect ${lock} before retrying; Relmio will not delete uncertain or pre-existing state.`;
+// The server shows a failure only when it is at most 240 characters and holds
+// no absolute path, so these texts name the lock by its file name. The code
+// lets the setup guide say where that lock lives.
+const SAFE_MESSAGE_LIMIT = 240;
+const LOCK_CODE = "vps_operation_lock";
+const lockName = lock => lock.slice(lock.lastIndexOf("/") + 1);
+const heldMessage = lock => `The operation lock ${lockName(lock)} is held or uncertain. Another setup may be running, or an earlier one was interrupted. An administrator must inspect it before retrying.`;
+const recoveryMessage = lock => `The operation lock ${lockName(lock)} or its temporary build state could not be removed safely. An administrator must inspect it before retrying; Relmio will not delete uncertain state.`;
+const recoveryError = lock => Object.assign(new Error(recoveryMessage(lock)), { code: LOCK_CODE });
+// A failed operation keeps its own sentence. The lock notice shrinks before the
+// whole text can pass the limit, and replaces it only as a last resort.
+const withLockNotice = (base, lock) => [
+  `${base} ${recoveryMessage(lock)}`,
+  `${base} An administrator must inspect ${lockName(lock)} before retrying.`,
+].find(text => text.length <= SAFE_MESSAGE_LIMIT) ?? recoveryMessage(lock);
 
-// Call only after the service's final-confirmation gate. Build state is lazy:
-// status, removal and cached retries never create it. Grok credential launches
-// use Compose run, which may build a missing image and therefore needs isolation.
+// Not every caller has passed a final confirmation: the bridge's image sign-in poll and cancel
+// take this lock without one. So this helper and its lock commands create and remove only the
+// lock folder and its build state, and never change the shared folder itself. Build state is
+// lazy: status, removal and cached retries never create it. Grok credential launches use
+// Compose run, which may build a missing image and therefore needs isolation.
 export async function withVpsOperationLock(remote, lock, operation, { resumeIdentity } = {}) {
-  const uncertainMessage = `The operation lock is held or uncertain. An administrator must inspect ${lock} before retrying.`;
+  const uncertainMessage = heldMessage(lock);
   let acquired;
   let claimIdentity;
   try {
@@ -19,7 +35,7 @@ export async function withVpsOperationLock(remote, lock, operation, { resumeIden
       ? claimVpsResumeLockCommand(lock, resumeIdentity) : createVpsLockCommand(lock));
   } catch (cause) {
     throw Object.assign(new Error(uncertainMessage, { cause }), {
-      safeMessage: uncertainMessage, operationLockRetained: true,
+      safeMessage: uncertainMessage, code: LOCK_CODE, operationLockRetained: true,
       ...(cause?.remoteOutcomeUnknown === true ? { remoteOutcomeUnknown: true } : {}),
       ...(cause?.timedOut === true ? { timedOut: true } : {}),
     });
@@ -29,7 +45,7 @@ export async function withVpsOperationLock(remote, lock, operation, { resumeIden
   if (acquired.code !== 0 || !validIdentity(identity) ||
       (resumeIdentity && !validIdentity(claimIdentity))) {
     throw Object.assign(new Error(uncertainMessage), {
-      safeMessage: uncertainMessage, operationLockRetained: true,
+      safeMessage: uncertainMessage, code: LOCK_CODE, operationLockRetained: true,
     });
   }
   let stateIdentity;
@@ -44,7 +60,7 @@ export async function withVpsOperationLock(remote, lock, operation, { resumeIden
       stateIdentity = created.stdout?.trim();
       if (created.code !== 0 || !validIdentity(stateIdentity)) {
         stateIdentity = undefined;
-        throw new Error(recoveryMessage(lock));
+        throw recoveryError(lock);
       }
       stateUncertain = false;
     }
@@ -54,13 +70,13 @@ export async function withVpsOperationLock(remote, lock, operation, { resumeIden
     if (!Number.isInteger(built?.code)) throw Object.assign(
       new Error("The companion build result could not be confirmed."), { remoteOutcomeUnknown: true });
     buildUncertain = false;
-    if (built.code !== 0) throw new Error("The confirmed companion image build or launch failed. The existing n8n deployment was not changed.");
+    if (built.code !== 0) throw Object.assign(new Error("The confirmed companion image build or launch failed. The existing n8n deployment was not changed."), { code: "vps_step_build" });
   };
   build.releaseState = async () => {
-    if (!stateIdentity || stateUncertain || buildUncertain) throw new Error(recoveryMessage(lock));
+    if (!stateIdentity || stateUncertain || buildUncertain) throw recoveryError(lock);
     stateUncertain = true;
     const removed = await remote.exec(cleanupVpsBuildStateCommand(lock, identity, stateIdentity));
-    if (removed.code !== 0) throw new Error(recoveryMessage(lock));
+    if (removed.code !== 0) throw recoveryError(lock);
     stateIdentity = undefined;
     stateUncertain = false;
   };
@@ -99,11 +115,12 @@ export async function withVpsOperationLock(remote, lock, operation, { resumeIden
       // Keep the primary exception and recovery classification; add only fixed,
       // safe cleanup text, never remote command output or credential material.
       primary.message = `${primary.message} ${message}`;
-      primary.safeMessage = `${primary.safeMessage ?? "The confirmed operation failed."} ${message}`;
+      primary.safeMessage = withLockNotice(primary.safeMessage ?? "The confirmed operation failed.", lock);
+      primary.code ??= LOCK_CODE;
       primary.operationLockRetained = true;
       throw primary;
     }
-    throw Object.assign(new Error(message), { safeMessage: message, operationLockRetained: true });
+    throw Object.assign(new Error(message), { safeMessage: message, code: LOCK_CODE, operationLockRetained: true });
   }
   if (primary) throw primary;
   return result;

@@ -1,5 +1,8 @@
 // Guide content for the VPS Claude wizard (claude-vps.html). Facts come from
 // docs/claude-subscription.md, docs/troubleshooting.md and docs/hosting-compatibility.md.
+// A [data-guide-state=...] selector reads a state the page publishes for the guide.
+
+import { HELP_METADATA } from "./context.js";
 
 const wait = (id) => ({
   id,
@@ -9,8 +12,6 @@ const wait = (id) => ({
   say: "Relmio is working on your server. Keep this page open until the bar finishes.",
   done: "hidden:#operation-progress",
 });
-
-import { HELP_METADATA } from "./context.js";
 
 export const GUIDE = {
   metadata: HELP_METADATA,
@@ -39,7 +40,7 @@ export const GUIDE = {
           id: "port",
           target: "#port",
           action: "type",
-          title: "Check the SSH port",
+          title: "Check the connection port",
           say: "SSH is the secure way Relmio logs in to your server to run commands. Keep 22 unless your server uses another SSH port.",
           example: "22",
           done: "filled",
@@ -49,7 +50,7 @@ export const GUIDE = {
           target: "#scan-button",
           action: "press",
           title: "Check the server identity",
-          say: "Press Check server identity. Relmio reads the server's fingerprint before it sends any password.",
+          say: "Press Check this server. Relmio reads the server's fingerprint before it sends any password.",
           done: "visible:#fingerprint-box",
         },
         {
@@ -65,9 +66,10 @@ export const GUIDE = {
           id: "username",
           target: "#username",
           action: "type",
-          title: "Your SSH username",
-          say: "This route needs root, the server's main administrator account.",
+          title: "Your sign-in name",
+          say: "This setup needs root, the server's main administrator account.",
           example: "root",
+          find: "Your provider's server details name the account. Passwordless sudo works only in the Local model setup, and Relmio does not ask you to change the server's SSH rules.",
           done: "filled",
         },
         {
@@ -75,7 +77,7 @@ export const GUIDE = {
           target: "#password",
           action: "type",
           title: "Type the server password",
-          say: "Type the SSH password for this server. It clears after each attempt. To use an SSH key, choose Local SSH agent in SSH authentication.",
+          say: "Type the password for this server. Relmio clears it after each attempt. To use an SSH key, choose Local SSH agent in SSH authentication.",
           find: "For a key, load it into your SSH agent with ssh-add before you start Relmio.",
           done: "filled",
         },
@@ -83,244 +85,281 @@ export const GUIDE = {
           id: "connect",
           target: "#connect-button",
           action: "press",
-          title: "Connect and look at n8n",
-          say: "Press Connect and inspect n8n. Relmio logs in and looks around without changing anything.",
+          title: "Connect to the server",
+          say: "Press Connect. Relmio logs in and looks around without changing anything.",
           done: "clicked",
         },
       ],
     },
-{
-  "id": "n8n",
-  "label": "Choose your n8n",
-  "panel": "#selection-panel",
-  "badge": "n8n found",
-  "tips": [
     {
-      "id": "container",
-      "target": "#container",
-      "action": "choose",
-      "title": "Pick your n8n",
-      "say": "Choose your running n8n container. The wizard does not edit or restart it.",
-      "done": "manual"
+      id: "n8n",
+      label: "Choose your n8n",
+      panel: "#selection-panel",
+      badge: "n8n found",
+      tips: [
+        wait("n8n-wait"),
+        {
+          id: "not-running",
+          target: "#installation-state[data-guide-state=not-running]",
+          action: "read",
+          title: "The companion is not running",
+          say: "Inspect the companion's logs before choosing a repair. If they say account_locked, follow the documented lock recovery after every process or container using that account has stopped. Replacement keeps the sign-in and does not clear that lock.",
+          find: "The Account-lock recovery guide link under this message opens the steps. If you cannot confirm cleanup, leave the companion stopped and its lock intact.",
+          done: "manual",
+        },
+        {
+          id: "container",
+          target: "#container",
+          action: "choose",
+          title: "Pick your n8n",
+          say: "This list shows n8n containers running on your server. A container is a sealed box that runs one app, like n8n. Pick the one you use.",
+          find: "Only running n8n is listed. Start n8n the way you normally do, then press Refresh status.",
+          done: "manual",
+        },
+        {
+          id: "network",
+          target: "#network",
+          action: "choose",
+          title: "Pick the private network",
+          say: "A Docker network is a private hallway that lets containers talk to each other. The Claude helper joins this one, and n8n does not change.",
+          done: "manual",
+        },
+        {
+          id: "install",
+          target: "#selection-panel [data-action=install]",
+          action: "press",
+          title: "Review the installation",
+          say: "Press Review installation. Next you choose models and answer four review questions. Nothing is written to your server yet.",
+          done: "clicked",
+        },
+        {
+          id: "continue",
+          target: "#selection-continue",
+          action: "press",
+          title: "Already installed",
+          say: "Claude is already set up here. Press Continue to see its sign-in command, approval expiry and n8n settings.",
+          done: "clicked",
+        },
+        {
+          id: "replace",
+          target: "#selection-panel [data-action=replace]",
+          action: "read",
+          title: "Replace only when needed",
+          say: "Review replacement rebuilds the helper and makes a new n8n key. Your Claude sign-in is kept. Use it to repair a helper or to take over one made with the commands.",
+          done: "manual",
+        },
+      ],
     },
     {
-      "id": "network",
-      "target": "#network",
-      "action": "choose",
-      "title": "Choose the private network",
-      "say": "The Claude companion joins this existing Docker network. No companion port is published.",
-      "done": "manual"
+      id: "approval",
+      label: "Review Claude use",
+      panel: "#approval-panel",
+      badge: "Owner review complete",
+      tips: [
+        wait("approval-wait"),
+        {
+          id: "pin",
+          target: "#candidate-sha",
+          action: "read",
+          title: "Check the official binary",
+          say: "Compare the version and SHA-256 with Anthropic's official release. A matching checksum alone does not establish permission.",
+          example: "2.1.317",
+          find: "Anthropic publishes a manifest with the SHA-256 for each Claude Code version. The Claude setup and review guide below links to it.",
+          done: "manual",
+        },
+        {
+          id: "choose-models",
+          target: "#model-choices",
+          action: "choose",
+          title: "Choose approved models",
+          say: "Choose the models you reviewed for your own plan. Sonnet 5.5 is ticked to start with, and Fable is refused. A listed model does not prove your account can use it.",
+          done: "manual",
+        },
+        {
+          id: "binary",
+          target: "[data-review=officialBinaryReviewed]",
+          action: "check",
+          title: "Review the binary",
+          say: "Tick this only after you compared the binary's version and checksum.",
+          done: "checked",
+        },
+        {
+          id: "policy",
+          target: "[data-review=effectivePolicyReviewed]",
+          action: "check",
+          title: "Review the effective policy",
+          say: "Tick this once you have read the Claude policy that applies to you and it permits this personal use.",
+          done: "checked",
+        },
+        {
+          id: "billing",
+          target: "[data-review=nativeAuthAndBillingReviewed]",
+          action: "check",
+          title: "Review sign-in and billing",
+          say: "Use your own Claude Pro or Max plan with extra usage off. You complete sign-in in your own terminal.",
+          find: "Extra usage is a setting in your Claude account. Turn it off before you sign in.",
+          done: "checked",
+        },
+        {
+          id: "changes",
+          target: "[data-review=policyChangesControlled]",
+          action: "check",
+          title: "Keep reviewed settings unchanged",
+          say: "Keep the reviewed runtime and policy unchanged. Approval lasts 7 days minus 1 hour, then you review again.",
+          done: "checked",
+        },
+        {
+          id: "prepare",
+          target: "#prepare-button",
+          action: "press",
+          title: "Review the final plan",
+          say: "Press Review final plan. Relmio reads a plan from your server and writes nothing yet. Installing needs a separate final confirmation.",
+          done: "clicked",
+        },
+      ],
     },
     {
-      "id": "install",
-      "target": "#selection-panel [data-action=install]",
-      "action": "press",
-      "title": "Review installation",
-      "say": "Review the model choices and four owner questions before seeing the final plan. Nothing is written yet.",
-      "done": "clicked"
+      id: "review",
+      label: "Confirm the plan",
+      panel: "#review-panel",
+      badge: "Plan confirmed",
+      tips: [
+        wait("review-wait"),
+        {
+          id: "summary",
+          target: "#review-summary",
+          action: "read",
+          title: "Check the exact action",
+          say: "This says exactly what Relmio will do. Check the server, n8n, network, models and expiry below it. Removal deletes the saved Claude sign-in, and replacement keeps it.",
+          done: "manual",
+        },
+        {
+          id: "confirm",
+          target: "#confirm-action",
+          action: "check",
+          title: "Approve this one action",
+          say: "Tick the box to approve this one action on the Claude helper only. n8n stays unchanged.",
+          done: "checked",
+        },
+        {
+          id: "apply",
+          target: "#apply-button",
+          action: "press",
+          title: "Apply the reviewed action",
+          say: "Press the action button and keep this page open until it finishes.",
+          done: "clicked",
+        },
+      ],
     },
     {
-      "id": "replace",
-      "target": "#selection-panel [data-action=replace]",
-      "action": "press",
-      "title": "Review replacement",
-      "say": "Replacement keeps the Claude login volume but creates a new n8n key. Save that new key in n8n afterward.",
-      "done": "clicked"
+      id: "connect",
+      label: "Sign in and connect",
+      panel: "#settings-panel",
+      badge: "Connection reviewed",
+      tips: [
+        wait("connect-wait"),
+        {
+          id: "key",
+          target: "#copy-key[data-guide-state=fresh]",
+          action: "press",
+          title: "Save the n8n key now",
+          say: "This key lets n8n reach the Claude helper and is shown only once. Press the copy button and save it in an n8n OpenAI credential. It is not a Claude login.",
+          done: "clicked",
+        },
+        {
+          id: "approval-expired",
+          target: "#approval-expiry[data-guide-state=expired]",
+          action: "read",
+          title: "Review the expired approval",
+          say: "Approval has expired, so Claude cannot start new work. Open Manage companion and login storage to review Renew approval. If logs also report account_locked, follow documented account-lock recovery first; renewal does not clear that lock.",
+          done: "manual",
+        },
+        {
+          id: "command",
+          target: "#copy-login",
+          action: "press",
+          title: "Copy the sign-in command",
+          say: "Run this command in your own terminal and follow the official Claude sign-in there. Never paste a Claude sign-in code into this page.",
+          example: "ssh -t root@203.0.113.10 sh /docker/n8n-openai-oauth/claude/login.sh",
+          find: "The page builds the command from the server you checked. Paste it into a terminal on your own computer.",
+          done: "clicked",
+        },
+        {
+          id: "auth",
+          target: "#auth-button",
+          action: "press",
+          title: "Check Claude sign-in",
+          say: "Press Check sign-in after you signed in in your terminal. It reads only whether Claude is signed in, how, and the plan type. It is ready when it confirms a claude.ai plan sign-in.",
+          done: "visible:#login-state[data-guide-state=ready]",
+        },
+        {
+          id: "settings",
+          target: "#n8n-settings",
+          action: "read",
+          title: "Set up the text workflow",
+          say: "In n8n, use a Basic LLM Chain with an OpenAI Chat Model. Turn Use Responses API off and set Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time.",
+          example: "http://relmio-claude:14502/v1",
+          find: "Create an OpenAI credential in n8n with this Base URL and your saved key as the API key.",
+          done: "manual",
+        },
+        {
+          id: "models",
+          target: "#models-button",
+          action: "press",
+          title: "Check approved models",
+          say: "Type your saved n8n key in the box, then press Check models. It lists the approved models without asking Claude anything, so it does not prove your sign-in.",
+          done: "clicked",
+        },
+        {
+          id: "expiry",
+          target: "#approval-expiry",
+          action: "read",
+          title: "Check approval expiry",
+          say: "Approval lasts 7 days minus 1 hour. After it ends the helper stops answering until you renew it under Manage companion and login storage.",
+          done: "manual",
+        },
+        {
+          id: "renew",
+          target: "#settings-panel [data-action=renew]",
+          action: "read",
+          title: "Renew approval",
+          say: "Renew approval asks the four review questions again and restarts only the Claude helper. Use it before approval ends.",
+          done: "manual",
+        },
+        {
+          id: "replace-key",
+          target: "#settings-panel [data-action=replace]",
+          action: "read",
+          title: "Replace the companion and key",
+          say: "This rebuilds the helper and makes a new n8n key while keeping your Claude sign-in. Use it when you need a fresh companion or have lost the key. It does not clear an account lock in the saved login volume.",
+          done: "manual",
+        },
+        {
+          id: "sign-out",
+          target: "#settings-panel [data-action=sign-out]",
+          action: "read",
+          title: "Sign out of Claude",
+          say: "Sign out ends only this helper's Claude session, after a review and a confirmation. Other accounts and n8n stay unchanged.",
+          done: "manual",
+        },
+        {
+          id: "remove",
+          target: "#settings-panel [data-action=remove]",
+          action: "read",
+          title: "Remove the Claude companion",
+          say: "Removal deletes the helper, its files and its saved Claude sign-in, after a review and a confirmation. n8n stays unchanged.",
+          done: "manual",
+        },
+      ],
     },
-    {
-      "id": "continue",
-      "target": "#selection-continue",
-      "action": "press",
-      "title": "Manage installed Claude",
-      "say": "Continue to see the terminal sign-in command, approval expiry and n8n settings.",
-      "done": "clicked"
-    }
-  ]
-},
-{
-  "id": "approval",
-  "label": "Review Claude use",
-  "panel": "#approval-panel",
-  "badge": "Owner review complete",
-  "tips": [
-    {
-      "id": "pin",
-      "target": "#candidate-sha",
-      "action": "read",
-      "title": "Check the official binary",
-      "say": "Compare the version and SHA-256 with the official release you reviewed. A matching checksum alone does not establish permission.",
-      "done": "manual"
-    },
-    {
-      "id": "choose-models",
-      "target": "#model-choices",
-      "action": "choose",
-      "title": "Choose approved models",
-      "say": "Choose the models you reviewed for your own plan. Fable is refused; listed choices do not establish account access.",
-      "done": "manual"
-    },
-    {
-      "id": "binary",
-      "target": "[data-review=officialBinaryReviewed]",
-      "action": "check",
-      "title": "Review the binary",
-      "say": "Tick only after reviewing the official binary and checksum.",
-      "done": "checked"
-    },
-    {
-      "id": "policy",
-      "target": "[data-review=effectivePolicyReviewed]",
-      "action": "check",
-      "title": "Review the effective policy",
-      "say": "Confirm that the effective policy permits your personal use.",
-      "done": "checked"
-    },
-    {
-      "id": "billing",
-      "target": "[data-review=nativeAuthAndBillingReviewed]",
-      "action": "check",
-      "title": "Review sign-in and billing",
-      "say": "Use your own Claude Pro or Max plan with extra usage off. You complete sign-in in your own terminal.",
-      "done": "checked"
-    },
-    {
-      "id": "changes",
-      "target": "[data-review=policyChangesControlled]",
-      "action": "check",
-      "title": "Keep reviewed settings unchanged",
-      "say": "Keep the reviewed runtime and policy unchanged. Approval expires within 7 days; renew it after another review.",
-      "done": "checked"
-    },
-    {
-      "id": "prepare",
-      "target": "#prepare-button",
-      "action": "press",
-      "title": "Review the final plan",
-      "say": "This sends your review choices for a read-only plan. Installation still needs a separate final confirmation.",
-      "done": "clicked"
-    }
-  ]
-},
-{
-  "id": "review",
-  "label": "Confirm the plan",
-  "panel": "#review-panel",
-  "badge": "Plan confirmed",
-  "tips": [
-    {
-      "id": "summary",
-      "target": "#review-summary",
-      "action": "read",
-      "title": "Check the exact action",
-      "say": "Check the server, network, models, binary pin and expiry. Removal deletes the saved Claude login; replacement keeps it.",
-      "done": "manual"
-    },
-    {
-      "id": "confirm",
-      "target": "#confirm-action",
-      "action": "check",
-      "title": "Approve this one action",
-      "say": "Tick only if you approve this exact action on the Claude companion. Existing n8n stays unchanged.",
-      "done": "checked"
-    },
-    {
-      "id": "apply",
-      "target": "#apply-button",
-      "action": "press",
-      "title": "Apply the reviewed action",
-      "say": "Press the action button and wait for its result. Do not close the wizard while it works.",
-      "done": "clicked"
-    }
-  ]
-},
-{
-  "id": "connect",
-  "label": "Sign in and connect",
-  "panel": "#settings-panel",
-  "badge": "Connection reviewed",
-  "tips": [
-    {
-      "id": "command",
-      "target": "#copy-login",
-      "action": "press",
-      "title": "Copy the terminal command",
-      "say": "Run this command in your own terminal and follow official Claude sign-in there. Never paste a Claude login code into the wizard.",
-      "done": "clicked"
-    },
-    {
-      "id": "auth",
-      "target": "#auth-button",
-      "action": "press",
-      "title": "Check Claude sign-in",
-      "say": "This reads only sign-in state, method and subscription type. A successful sign-in is separate from a successful model request.",
-      "done": "clicked"
-    },
-    {
-      "id": "key",
-      "target": "#copy-key",
-      "action": "press",
-      "title": "Save the n8n key",
-      "say": "This separate key lets n8n reach the companion. It appears only after install or replacement; save it in your OpenAI credential.",
-      "done": "clicked"
-    },
-    {
-      "id": "settings",
-      "target": "#n8n-settings",
-      "action": "read",
-      "title": "Set up the text workflow",
-      "say": "Use Basic LLM Chain and OpenAI Chat Model with Responses API off, Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time; not AI Agent tools or the n8n AI Assistant.",
-      "done": "manual"
-    },
-    {
-      "id": "models",
-      "target": "#models-button",
-      "action": "press",
-      "title": "Check approved models",
-      "say": "Enter your saved n8n API key and check models. A model listing does not prove a workflow succeeds.",
-      "done": "clicked"
-    },
-    {
-      "id": "expiry",
-      "target": "#approval-expiry",
-      "action": "read",
-      "title": "Check approval expiry",
-      "say": "Approval expires within 7 days. Open Manage companion and login storage to renew it after reviewing again.",
-      "done": "manual"
-    },
-    {
-      "id": "renew",
-      "target": "#settings-panel [data-action=renew]",
-      "action": "press",
-      "title": "Renew approval",
-      "say": "Review all four owner questions again and confirm the final plan. Only the Claude companion restarts.",
-      "done": "clicked"
-    },
-    {
-      "id": "sign-out",
-      "target": "#settings-panel [data-action=sign-out]",
-      "action": "read",
-      "title": "Sign out of Claude",
-      "say": "Review and confirm to sign out only this companion. Other accounts and n8n stay unchanged.",
-      "done": "manual"
-    },
-    {
-      "id": "remove",
-      "target": "#settings-panel [data-action=remove]",
-      "action": "read",
-      "title": "Remove the Claude companion",
-      "say": "Review and confirm removal of the companion, its files and its saved Claude login. Existing n8n stays unchanged.",
-      "done": "manual"
-    }
-  ]
-}
   ],
   finish: {
-  "title": "Check your workflow",
-  "say": "The wizard checks installation, sign-in and model listing separately. Test a short text workflow in n8n before relying on it.",
-  "next": [
-    "Save the private Base URL and n8n key in an OpenAI credential",
-    "Use the required text-only n8n settings",
-    "Renew approval before it expires"
-  ]
-}
+    title: "Check your workflow",
+    say: "The wizard checks installation, sign-in and model listing separately. Test a short text workflow in n8n before relying on it.",
+    next: [
+      "Save the private Base URL and n8n key in an OpenAI credential",
+      "Use the required text-only n8n settings",
+      "Renew approval before it expires",
+    ],
+  },
 };

@@ -1,5 +1,5 @@
 import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField } from "./ssh-form.js";
-import { readWizardSession } from "./session.js";
+import { flashCopied, readWizardSession, whenVisible, wizardApiError } from "./session.js";
 import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
@@ -16,7 +16,8 @@ const state = {
   status: null,
 };
 let sshIdentityDecision = 0;
-const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
+const hostReport = () => ({ flow: "supergrok", container: element("container").value, network: element("network").value });
+const sshSession = createCredentialSshGuard({ token, hostReport, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateBoundaryState();
   element("container").replaceChildren();
   element("network").replaceChildren();
@@ -142,12 +143,12 @@ function stopProgress() {
 
 function controls() {
   return [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")]
-    .filter((control) => !control.closest?.(".rm-guide-layer"));
+    .filter((control) => !control.closest?.(".rm-guide-layer, [data-guide-help]"));
 }
 
 for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
   document.addEventListener(name, (event) => {
-    if (!state.busy || event.target?.closest?.(".rm-guide-layer") || (name === "keydown" && event.key === "Tab")) return;
+    if (!state.busy || event.target?.closest?.(".rm-guide-layer, [data-guide-help]") || (name === "keydown" && event.key === "Tab")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
@@ -156,6 +157,7 @@ for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "
 async function perform(label, work) {
   if (state.busy) return undefined;
   state.busy = true;
+  const origin = document.activeElement;
   clearError();
   setMessage(label);
   document.body.dataset.operationBusy = "true";
@@ -186,6 +188,10 @@ async function perform(label, work) {
     document.body.dataset.operationBusy = "false";
     element("route-steps-content").setAttribute("aria-busy", "false");
     syncConnectionControls();
+    // Keyboard focus returns to the control that started this, unless an error or a new view took it.
+    if ([document.body, origin].includes(document.activeElement) && origin?.isConnected && !origin.disabled && origin.getClientRects().length) {
+      origin.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -208,7 +214,7 @@ async function api(path, body = {}) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw new Error("The wizard returned an unreadable response. Start a fresh setup link.");
   }
-  if (!response.ok) throw new Error(result.error || "The operation could not be completed.");
+  if (!response.ok) throw wizardApiError(result, response.status, "The operation could not be completed.");
   await sshSession.after(path, result);
   return result;
 }
@@ -242,7 +248,8 @@ function scheduleLoginPoll(installId, generation, delay = 2_000) {
   ) return;
   state.pollTimer = window.setTimeout(() => {
     state.pollTimer = null;
-    void pollLogin(installId, generation);
+    // A hidden tab waits and checks once when it is shown again.
+    whenVisible(() => void pollLogin(installId, generation));
   }, delay);
 }
 
@@ -303,6 +310,7 @@ function renderStatus(next) {
 
 async function refreshStatus() {
   invalidateReview();
+  sshSession.refreshHostReport();
   const boundary = selectedBoundary();
   if (!boundary.networkName) return;
   const requestGeneration = ++state.requestGeneration;
@@ -319,6 +327,7 @@ async function loadNetworks() {
   const result = await api("/api/networks", { containerName });
   if (requestGeneration !== state.requestGeneration || containerName !== element("container").value) return;
   selectOptions(element("network"), result.networks.map((name) => [name, name]));
+  if (result.networks.includes(result.recommended)) element("network").value = result.recommended;
   await refreshStatus();
 }
 
@@ -328,9 +337,11 @@ async function discover() {
   const result = await api("/api/discover");
   if (requestGeneration !== state.requestGeneration) return;
   if (!Array.isArray(result.containers) || result.containers.length === 0) {
-    throw new Error("No running n8n container was found on this VPS.");
+    // The server says what it looked for when it has that sentence.
+    throw new Error(typeof result.noneFoundMessage === "string" && result.noneFoundMessage.length <= 240
+      ? result.noneFoundMessage : "No running n8n container was found on this VPS.");
   }
-  selectOptions(element("container"), result.containers.map((item) => [item.name, `${item.name} — ${item.image}`]));
+  selectOptions(element("container"), result.containers.map((item) => [item.name, `${item.name} · ${item.image}`]));
   element("ssh-panel").hidden = true;
   element("selection-panel").hidden = false;
   setStage(2);
@@ -439,6 +450,9 @@ element("scan-button").addEventListener("click", () => {
     element("fingerprint").textContent = state.fingerprint;
     element("fingerprint-box").hidden = false;
     setMessage("Compare the fingerprint before authenticating.");
+  }).then(() => {
+    // As on the main setup page, a finished check hands focus to the confirmation.
+    if (state.fingerprint && document.activeElement === element("scan-button")) element("trust-host").focus();
   });
 });
 
@@ -452,6 +466,8 @@ element("ssh-form").addEventListener("submit", (event) => {
   if (!state.fingerprint || !element("trust-host").checked) return;
   void perform("Connecting and finding n8n…", async () => {
     await api("/api/ssh/connect", sshAuthentication.request(state.fingerprint));
+    // The confirmed identity has been used. Another attempt starts with a fresh check.
+    resetHost();
     for (const id of ["username", "password"]) clearFieldError(element(id), "error-message");
     await discover();
   });
@@ -527,6 +543,7 @@ element("copy-key").addEventListener("click", async (event) => {
         button.focus();
       }
     }
+    flashCopied(button);
     setMessage("Local bearer copied. Paste it directly into the n8n credential.");
   } catch {
     showError(new Error("Clipboard access was refused by the browser. Select the local bearer manually."));

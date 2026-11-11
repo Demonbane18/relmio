@@ -5,6 +5,12 @@
 
 import { HELP_METADATA } from "./context.js";
 
+const wait = (id) => ({
+  id, target: "#operation-progress", action: "wait", title: "Wait for this step",
+  say: "Relmio is working on this computer. Keep this page open until the operation finishes.",
+  done: "hidden:#operation-progress",
+});
+
 const siwcTips = [
   {
     id: "stop-sign-in",
@@ -215,9 +221,15 @@ export const GUIDE = {
       panel: "#configure-stage",
       badge: "Details ready",
       tips: [
+        wait("configure-wait"),
         {
-          id: "claude-models", target: "#claude-models", action: "type", title: "Choose Claude models",
-          say: "Enter 1 to 8 exact Claude model IDs, separated by commas; Fable is refused. This experimental companion uses your own Claude plan. Sign in yourself in your terminal; Relmio never sees your Claude login.",
+          id: "claude-models",
+          target: "#claude-models",
+          action: "type",
+          title: "Choose Claude models",
+          say: "Enter 1 to 8 exact Claude model IDs, separated by commas. Fable is refused. You sign in yourself later, in your own terminal.",
+          example: "claude-sonnet-5-5",
+          find: "The three 5.5 models are filled in to start with. Keep the ones your own Claude plan includes.",
           done: "manual",
         },
         {
@@ -267,7 +279,7 @@ export const GUIDE = {
           target: "#n8n-container",
           action: "choose",
           title: "Pick your n8n",
-          say: "This list shows n8n containers running on this computer. Pick the one you use. Relmio does not change it.",
+          say: "A container is a sealed box that runs one app, like n8n. This list shows n8n containers running on this computer. Pick the one you use; Relmio does not change it.",
           find: "Only running n8n is listed. Start n8n first if it is missing, then press Refresh n8n discovery.",
           done: "manual",
         },
@@ -331,15 +343,6 @@ export const GUIDE = {
           title: "Local n8n port",
           say: "n8n opens on this computer at this port. Keep 5679 unless another app uses it.",
           example: "5679",
-          done: "filled",
-        },
-        {
-          id: "inspector-port",
-          target: "#ngrok-inspector-port",
-          action: "type",
-          title: "ngrok inspector port",
-          say: "ngrok's inspector page opens on this computer only. Keep 4041 unless another app uses it.",
-          example: "4041",
           done: "filled",
         },
         {
@@ -407,6 +410,24 @@ export const GUIDE = {
       panel: "[data-step=\"2\"]",
       badge: "Plan approved",
       tips: [
+        wait("review-wait"),
+        {
+          id: "claude-review",
+          target: "#claude-review",
+          action: "read",
+          title: "Review all four Claude questions",
+          say: "Check the official binary and SHA-256, the effective policy, your own plan with extra usage off, and control of future changes. Each answer starts unticked. Approval lasts 7 days minus 1 hour.",
+          find: "Anthropic publishes a manifest with the SHA-256 for each Claude Code version. The Claude setup and review guide below the answers links to it.",
+          done: "manual",
+        },
+        {
+          id: "claude-review-continue",
+          target: "#claude-review-continue",
+          action: "press",
+          title: "Review the plan",
+          say: "Tick all four answers, then press Review the plan. Nothing is installed yet.",
+          done: "clicked",
+        },
         {
           id: "plan",
           target: "#review-endpoint",
@@ -429,11 +450,6 @@ export const GUIDE = {
           action: "read",
           title: "Your public link",
           say: "This is the public n8n address. Anyone can reach its sign-in prompt, so you will pick a strong password on the next screen.",
-          done: "manual",
-        },
-        {
-          id: "claude-review", target: "#claude-review", action: "read", title: "Review all four Claude questions",
-          say: "Check the official binary and SHA256, effective policy, your own plan with extra usage off, and control of future changes. Each answer starts unchecked. Approval expires within 7 days; renew it here.",
           done: "manual",
         },
         {
@@ -543,12 +559,21 @@ export const GUIDE = {
           done: "checked",
         },
         {
+          id: "review-again",
+          target: "#install-review-again",
+          action: "press",
+          title: "Review the plan again",
+          say: "The install was not confirmed. Check Connections on the dashboard for a leftover connection, then press Review the plan again. Your settings are kept.",
+          done: "clicked",
+        },
+        {
           id: "install",
           target: "#install-button",
           action: "press",
           title: "Install on this computer",
           say: "Press Install on this computer and keep this page open until it finishes.",
           done: "clicked",
+          installs: true,
         },
       ],
     },
@@ -558,6 +583,15 @@ export const GUIDE = {
       panel: "[data-step=\"4\"]",
       badge: "Connection ready",
       tips: [
+        wait("ready-wait"),
+        {
+          id: "claude-key",
+          target: "#claude-copy-key[data-guide-state=fresh]",
+          action: "press",
+          title: "Save the Claude key now",
+          say: "This Relmio key lets n8n reach the Claude helper and is shown only once. Press Copy key and save it in an n8n OpenAI credential. It is not a Claude login.",
+          done: "clicked",
+        },
         {
           id: "tester-endpoint",
           target: "#chat-tester-endpoint",
@@ -618,18 +652,80 @@ export const GUIDE = {
           done: "checked",
         },
         {
-          id: "claude-terminal", target: "#claude-login-command", action: "read", title: "Sign in in your terminal",
-          say: "On macOS or Linux, run relmio claude companion login in your own terminal, or npx --yes --ignore-scripts relmio@latest claude companion login if you use NPX. The official Claude Code handles sign-in inside the companion. Do not paste a login code into this browser.",
+          id: "claude-restarting",
+          target: "#claude-runtime-status[data-guide-state=not-running]",
+          action: "read",
+          title: "Inspect the Claude companion",
+          say: "Inspect the companion's logs before choosing a repair. If they say account_locked, follow the documented lock recovery after every process or container using that account has stopped. Keeping the sign-in for a reinstall also keeps that lock.",
+          find: "The line under the status links to the account-lock recovery guide. If cleanup is uncertain, leave the companion stopped and the lock intact.",
           done: "manual",
         },
         {
-          id: "claude-check", target: "#claude-check-sign-in", action: "press", title: "Check Claude sign-in",
-          say: "Press Check sign-in. It must report loggedIn true with authMethod claude.ai. Only those status fields and subscription type are read; a status check does not prove model access.",
+          id: "claude-terminal",
+          target: "#claude-login-command",
+          action: "read",
+          title: "Sign in in your terminal",
+          say: "Run this command in your own terminal on this computer. The official Claude Code handles sign-in inside the helper. Do not paste a sign-in code into this browser.",
+          example: "relmio claude companion login",
+          find: "Without an installed relmio command, run npx --yes --ignore-scripts relmio@latest claude companion login instead.",
+          done: "manual",
+        },
+        {
+          id: "claude-check",
+          target: "#claude-check-sign-in",
+          action: "press",
+          title: "Check Claude sign-in",
+          say: "Press Check sign-in after you signed in in your terminal. It is ready when it reports loggedIn true with authMethod claude.ai. A status check does not prove model access.",
+          done: "visible:#claude-auth-status[data-guide-state=ready]",
+        },
+        {
+          id: "claude-settings",
+          target: "#claude-management-title",
+          action: "read",
+          title: "Set n8n for text-only Claude",
+          say: "Use a Basic LLM Chain with an OpenAI Chat Model. Turn Use Responses API off and set Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time.",
+          example: "http://relmio-claude:14502/v1",
+          find: "Create an OpenAI credential in n8n with this Base URL and your Relmio key as the API key. Open n8n settings and approval for the full list.",
+          done: "manual",
+        },
+        {
+          id: "claude-models-check",
+          target: "#claude-check-models",
+          action: "press",
+          title: "Check the approved models",
+          say: "Type your saved Relmio key in the box above, then press Check models. It lists the approved models and sends Claude no prompt, so it does not prove account access.",
           done: "clicked",
         },
         {
-          id: "claude-settings", target: "#claude-management-title", action: "read", title: "Set n8n for text-only Claude",
-          say: "Use Basic LLM Chain with OpenAI Chat Model. Turn Use Responses API off and set Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time; no AI Agent tools or n8n AI Assistant.",
+          id: "claude-renew",
+          target: "#claude-renew",
+          action: "read",
+          title: "Renew approval",
+          say: "Approval lasts 7 days minus 1 hour. To renew, answer the four questions again, tick the confirmation and press Renew approval. Only the Claude helper restarts.",
+          done: "manual",
+        },
+        {
+          id: "claude-sign-out",
+          target: "#claude-sign-out",
+          action: "read",
+          title: "Sign out of Claude",
+          say: "Sign out ends this companion's Claude session without changing n8n or other accounts. Tick the confirmation only when you want that action.",
+          done: "manual",
+        },
+        {
+          id: "claude-keep-login",
+          target: "#claude-keep-login",
+          action: "read",
+          title: "Keep the Claude sign-in",
+          say: "Tick this before removal to keep your Claude sign-in in Docker for the next install. Any account lock in it stays too. This does not repair a stranded lock.",
+          done: "manual",
+        },
+        {
+          id: "claude-remove",
+          target: "#claude-remove",
+          action: "read",
+          title: "Remove Claude",
+          say: "Removal deletes Relmio's Claude helper and files. It also deletes the sign-in unless Keep my Claude sign-in for a reinstall is ticked. n8n and its network stay.",
           done: "manual",
         },
         {

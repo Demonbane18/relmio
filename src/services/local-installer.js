@@ -1131,22 +1131,22 @@ export async function getLocalDockerStatus({
       env,
       platform,
     });
-    const docker = await runProcess({
-      file: "docker",
-      args: ["version", "--format", "{{.Server.Version}}"],
-      cwd,
-      dockerHost,
-    });
-    if (docker.code !== 0) {
-      throw new Error();
-    }
-    const compose = await runProcess({
-      file: "docker",
-      args: ["compose", "version", "--short"],
-      cwd,
-      dockerHost,
-    });
-    if (compose.code !== 0) {
+    // Both version checks only read from the same validated host, so they run together.
+    const [docker, compose] = await Promise.all([
+      runProcess({
+        file: "docker",
+        args: ["version", "--format", "{{.Server.Version}}"],
+        cwd,
+        dockerHost,
+      }),
+      runProcess({
+        file: "docker",
+        args: ["compose", "version", "--short"],
+        cwd,
+        dockerHost,
+      }),
+    ]);
+    if (docker.code !== 0 || compose.code !== 0) {
       throw new Error();
     }
     return {
@@ -1436,15 +1436,21 @@ async function attestDockerOwnership({
   runProcess,
   strictResourceIdentities = false,
 }) {
-  const counts = {};
-  for (const spec of createOwnershipPreflightSpecs({
+  const specs = createOwnershipPreflightSpecs({
     target,
     installRoot,
     dockerHost,
     projectName,
-  })) {
-    const result = await runOrThrow(runProcess, spec);
-    counts[spec.resource] = validateOwnershipOutput(result.stdout, {
+  });
+  // The three lists only read from the same validated host, so they run together. They are
+  // checked in the fixed order, so the first failure reported is the one a sequential run gave.
+  const results = await Promise.allSettled(
+    specs.map((spec) => runOrThrow(runProcess, spec)),
+  );
+  const counts = {};
+  for (const [index, spec] of specs.entries()) {
+    if (results[index].status === "rejected") throw results[index].reason;
+    counts[spec.resource] = validateOwnershipOutput(results[index].value.stdout, {
       target,
       installId,
       projectName,
