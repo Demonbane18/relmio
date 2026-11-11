@@ -94,24 +94,37 @@ test("dashboard copy allowlist includes endpoint and n8n URLs but never credenti
   assert.equal(buttons().length, 0);
 });
 
-test("returning to dashboard discards pending setup reviews and one-time values", async () => {
-  const script = await source();
-  const transition = `${between(script, "function setClaudeOneTimeKey(key)", "\nfunction renderClaudeStatus")}\n${between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation")}`;
-  const clearPoll = between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
+// The real setup reset and dashboard entry up to the inventory read, which is a stub.
+function dashboardEntry(script) {
+  const code = [
+    between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus"),
+    between(script, "function captureDashboardFocusIdentity", "\nfunction restoreDashboardFocus"),
+    between(script, "function renderDashboardTruth", "\nfunction renderDashboardServiceDetail"),
+    between(script, "function renderDashboardChecking", "\nfunction renderDashboardSnapshot"),
+    between(script, "function setClaudeOneTimeKey(key)", "\nfunction renderClaudeStatus"),
+    between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation"),
+    "enterDashboardView;",
+  ].join("\n");
   const nodes = new Map();
-  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, dataset: {}, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
+  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, dataset: {}, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, setAttribute() {}, querySelector: () => null, focus() {} }).get(id);
   const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, dashboardGeneration: 0, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
   const calls = []; const clearedTimers = [];
   const openDisclosures = [{ open: true }, { open: true }];
   const document = { body: { dataset: {} }, querySelectorAll: () => openDisclosures };
-  await runInNewContext(`${clearPoll}\n${transition}\nenterDashboardView();`, { state, element, document, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, renderInstalledImages(images, visible) { calls.push(["images", images, visible]); }, scheduleDashboardStaleExpiry() {} });
-  await Promise.resolve();
+  const enter = runInNewContext(code, { state, element, document, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, renderInstalledImages(images, visible) { calls.push(["images", images, visible]); }, scheduleDashboardStaleExpiry() {} });
+  return { enter, state, element, document, calls, clearedTimers, openDisclosures };
+}
+
+test("returning to dashboard discards pending setup reviews and one-time values", async () => {
+  const { enter, state, element, calls, clearedTimers, openDisclosures } = dashboardEntry(await source());
+  await enter();
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["/api/local/discard", { method: "POST", body: {} }]);
   assert.equal(state.plan, null);
   assert.equal(state.planId, null);
   assert.equal(state.installedTarget, null);
   assert.equal(state.assistantSearxngReview, null);
   assert.equal(state.assistantSearxngReviewId, null);
+  // The inventory check starts on the dashboard, so no control focused before setup gets focus back.
   assert.equal(state.dashboardFocusIdentity, null);
   assert.equal(element("result-credential").textContent, "");
   assert.equal(element("ngrok-authtoken").value, "");
@@ -126,6 +139,17 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   assert.equal(element("claude-client-key").textContent, "");
   assert.equal(element("claude-one-time-key").hidden, true);
   assert.equal(element("claude-copy-key").dataset.guideState, "none");
+});
+
+test("a refresh keeps the dashboard control focused at the press for its inventory check to restore", async () => {
+  const { enter, state, document } = dashboardEntry(await source());
+  document.body.dataset.localView = "dashboard";
+  document.activeElement = { dataset: { dashboardService: "codex-chatgpt", dashboardControl: "select" } };
+  const entering = enter({ preserveFocus: true, preserveScroll: true });
+  // The check disabled that control, so the browser moved focus to the page while the discard ran.
+  document.activeElement = document.body;
+  await entering;
+  assert.deepEqual(JSON.parse(JSON.stringify(state.dashboardFocusIdentity)), { service: "codex-chatgpt", action: null, actionLocation: null, fact: null });
 });
 
 test("dashboard direct hashes and browser history retain one current navigation link", async () => {
@@ -143,8 +167,9 @@ function heldRequests() {
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   return {
     calls,
-    api: (path) => new Promise((resolve) => calls.push({ path, resolve })),
+    api: (path) => new Promise((resolve, reject) => calls.push({ path, resolve, reject })),
     async answer(index, value) { calls[index].resolve(value); await settle(); },
+    async fail(index, error) { calls[index].reject(error); await settle(); },
     settle,
   };
 }
@@ -157,7 +182,7 @@ function dashboardPage(script) {
     between(script, "function isDashboardSnapshotStale", "\nfunction appendDashboardFact"),
     between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"),
     between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow"),
-    between(script, "function renderDashboardChecking", "\nfunction renderDashboardFailure"),
+    between(script, "function renderDashboardChecking", "\nasync function loadLocalDashboard"),
     between(script, "async function loadLocalDashboard", "\n// Plan and usage"),
     between(script, "async function enterSetupView(", "\nfunction syncDashboardNavigation"),
     between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent"),
@@ -175,7 +200,7 @@ function dashboardPage(script) {
     window: { addEventListener() {}, clearTimeout() {}, setTimeout() { return 1; }, scrollTo(options) { scrolls.push(options); } },
     clearLocalModelPoll() {}, resetPendingSetupState() {}, preferredScrollBehavior: () => "auto", syncDashboardNavigation() {},
     normalizeDashboardSnapshot: (value) => value, showDashboardUsage() {},
-    renderDashboardFailure() { failures.push("inventory failure"); }, showError(error) { failures.push(error); },
+    showError(error) { failures.push(error); },
     clearMessage() {}, showSetupStage() {}, showStep() {}, async initializeLocalWizard() {}, focusVisibleSetupHeading() {},
     assistantModeLabel: () => "Disabled", copyText: async () => {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n", dashboardServiceDescription: () => "Verified service", dashboardStateLabel: (value) => value, dashboardStateNode: () => node("span"), dashboardStatusDot: () => node("span"), flashCopied() {}, localTime: () => node("time"), renderDashboardAction: () => null, renderDashboardCompactService: () => node("li"), renderDashboardSectionStatus: () => node("li"), renderDashboardServiceRow: () => node("li"),
   });
@@ -217,6 +242,7 @@ test("Refresh starts one discard and one inventory check however often it is pre
   await held.answer(5, newest);
   await held.answer(3, older);
   assert.equal(state.dashboardSnapshot, newest, "the older answer arrives last and is dropped");
+  assert.equal(element("dashboard-error").hidden, true, "no check failed");
 
   // Once the newest check is shown, Refresh works again.
   press("dashboard-refresh");
@@ -236,4 +262,61 @@ test("a dashboard answer that arrives after setup opened leaves the Claude notic
   assert.equal(element("local-footer-claude").hidden, false, "the late answer does not swap the notice for the dashboard selection's");
   assert.equal(element("local-footer-provider").hidden, true);
   assert.equal(state.dashboardSnapshot, null, "the late answer is not rendered");
+});
+
+test("Refresh shows its check while the discard runs, and a failed discard ends it on the last verified inventory", async () => {
+  const { page, held, element, state, document, view } = dashboardPage(await source());
+  const press = (id) => element(id).listeners.click();
+  const shown = () => [element("dashboard-refresh").getAttribute("aria-busy"), element("dashboard-inventory-freshness").textContent, state.dashboardBusy];
+  const current = () => ({ ...view, generatedAt: new Date().toISOString() });
+  page.initialize();
+  await held.answer(0, { discarded: true });
+  await held.answer(1, current());
+  assert.deepEqual(shown(), ["false", "Current", false]);
+
+  // While a slow discard runs, Refresh is busy and the inventory no longer reads as current.
+  press("dashboard-refresh");
+  assert.deepEqual(shown(), ["true", "Checking", true]);
+  // The discard fails: the check ends on the last verified inventory, marked stale, and the error takes focus.
+  await held.fail(2, new Error("The local Relmio wizard is not reachable."));
+  assert.deepEqual(shown(), ["false", "Refresh needed", false]);
+  assert.equal(element("dashboard-error").hidden, false);
+  assert.equal(document.activeElement, element("dashboard-error"));
+  // Refresh works again, and its check puts the error away.
+  press("dashboard-refresh");
+  assert.equal(element("dashboard-error").hidden, true);
+  await held.answer(3, { discarded: true });
+  await held.answer(4, current());
+  assert.deepEqual(shown(), ["false", "Current", false]);
+});
+
+test("a discard that fails from setup, or after setup replaced the refresh, leaves the dashboard as it was", async () => {
+  const { page, held, element, state, document, view, failures } = dashboardPage(await source());
+  const press = (id) => element(id).listeners.click();
+  const current = () => ({ ...view, generatedAt: new Date().toISOString() });
+  const refused = new Error("The local Relmio wizard is not reachable.");
+  page.initialize();
+  await held.answer(0, { discarded: true });
+  await held.answer(1, current());
+
+  // Back to dashboard fails: the person stays on setup with the error, and the hidden dashboard is not left checking.
+  press("dashboard-new-setup"); await held.settle();
+  press("setup-back-to-dashboard");
+  await held.fail(2, refused);
+  assert.deepEqual(failures, [refused]);
+  assert.equal(document.body.dataset.localView, "setup");
+  assert.equal(state.dashboardBusy, false);
+  assert.equal(element("dashboard-refresh").getAttribute("aria-busy"), "false");
+  assert.equal(element("dashboard-inventory-freshness").textContent, "Current");
+
+  // A refresh whose discard fails after setup opened leaves both views alone.
+  press("setup-back-to-dashboard");
+  await held.answer(3, { discarded: true });
+  await held.answer(4, current());
+  press("dashboard-refresh");
+  press("dashboard-new-setup"); await held.settle();
+  await held.fail(5, refused);
+  assert.equal(failures.length, 1, "setup shows no second error");
+  assert.equal(element("dashboard-error").hidden, true, "the dashboard shows no failure");
+  assert.equal(document.body.dataset.localView, "setup");
 });
