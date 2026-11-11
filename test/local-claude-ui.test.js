@@ -197,12 +197,13 @@ test("the Ready view reads a starting companion again until Docker reports anoth
   assert.equal(element("claude-runtime-help").hidden, false);
   assert.equal(element("claude-runtime-status").dataset.guideState, "not-running");
 
-  // A companion that stays starting is read at most seven times.
+  // A companion that stays starting is read at most seven times, and the card then says its state is unconfirmed.
   runtime = "starting";
   api.renderClaudeInstallResult(claudeInstallResult);
   requests.length = 0;
   for (let turn = 0; turn < 20 && state.claudeStatusTimer !== null; turn += 1) await tick();
   assert.equal(requests.length, 7);
+  assert.match(element("claude-runtime-text").textContent, /^Unknown\. /u);
 
   // Once the view is left, no request is sent.
   api.renderClaudeInstallResult(claudeInstallResult);
@@ -211,6 +212,57 @@ test("the Ready view reads a starting companion again until Docker reports anoth
   await tick();
   assert.equal(requests.length, 0);
   assert.equal(state.claudeStatusTimer, null);
+});
+
+test("a status read that finds no runtime says so instead of Starting, and checks that end unsettled point to Refresh status", async () => {
+  let answer;
+  const { element, api, state, timers, requests } = claudeCard({ reply: () => answer() });
+  const tick = () => timers.at(-1).callback();
+  const line = () => element("claude-runtime-text").textContent;
+  const server = (serverState) => () => ({ target: "n8n-claude-oauth", managed: false, state: serverState, snapshot: null });
+  const offline = () => { throw new Error("The local Relmio wizard is not reachable."); };
+
+  // Docker or the companion's files cannot be read: the card stops saying Starting and reads again later.
+  answer = server("unavailable");
+  api.renderClaudeInstallResult(claudeInstallResult);
+  await tick();
+  assert.match(line(), /^Unavailable\. /u);
+  assert.equal(element("claude-runtime-status").dataset.tone, "warning");
+  assert.equal(element("claude-runtime-help").hidden, true, "an unreadable status gets no restart advice");
+  assert.notEqual(state.claudeStatusTimer, null);
+  // A later read that finds the companion starting shows the calm line again.
+  answer = () => ({ target: "n8n-claude-oauth", managed: true, state: "partial", snapshot: claudeSnapshot({ runtime: "starting" }) });
+  await tick();
+  assert.match(line(), /^Starting/u);
+  assert.equal(element("claude-runtime-status").dataset.tone, "accent");
+  // A failed read, or an answer that fits no status, only uses up its check.
+  answer = offline;
+  await tick();
+  answer = () => ({ target: "n8n-claude-oauth", managed: false, state: "absent", snapshot: claudeSnapshot() });
+  await tick();
+  assert.match(line(), /^Starting/u, "Starting stays while checks remain");
+  // The last check finds no runtime: the card says the state is unknown and points to Refresh status.
+  answer = server("unavailable");
+  for (let turn = 0; turn < 20 && state.claudeStatusTimer !== null; turn += 1) await tick();
+  assert.equal(requests.length, 7);
+  assert.equal(line(), "Unknown. Relmio could not confirm the companion's state. Check again with Refresh status on the dashboard.");
+  assert.equal(element("claude-runtime-status").dataset.tone, "warning");
+
+  // A companion Relmio no longer finds ends the reads at once.
+  answer = server("absent");
+  api.renderClaudeInstallResult(claudeInstallResult);
+  requests.length = 0;
+  await tick();
+  assert.match(line(), /^Not found\. /u);
+  assert.equal(element("claude-runtime-status").dataset.tone, "warning");
+  assert.equal(state.claudeStatusTimer, null);
+  assert.equal(requests.length, 1);
+
+  // Reads that all fail end the same way as reads that find no runtime.
+  answer = offline;
+  api.renderClaudeInstallResult(claudeInstallResult);
+  for (let turn = 0; turn < 20 && state.claudeStatusTimer !== null; turn += 1) await tick();
+  assert.match(line(), /^Unknown\. /u);
 });
 
 test("the dashboard row and detail show the Claude approval and never call a lapsed or stopping companion healthy", () => {

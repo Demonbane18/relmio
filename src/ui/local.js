@@ -12,12 +12,17 @@ import { formatLocalDateTime } from "./time.js";
 const CLAUDE_REVIEW_KEYS = ["officialBinaryReviewed", "effectivePolicyReviewed", "nativeAuthAndBillingReviewed", "policyChangesControlled"];
 // Docker reports "starting" for about a minute after every install, renewal or Docker
 // restart, so it reads as a calm state. Only a companion that keeps stopping gets advice.
+// A status read can find "absent" or "unavailable" instead of a runtime; "unconfirmed"
+// follows the last check when the runtime has not settled.
 const CLAUDE_RUNTIME_TEXT = Object.freeze({
   running: "Running.",
   starting: "Starting. The first check takes about a minute.",
   restarting: "Restarting. The companion keeps stopping.",
   unhealthy: "Unhealthy. The companion fails its health check.",
   stopped: "Stopped. The companion container is not running.",
+  absent: "Not found. Relmio no longer finds the companion on this computer.",
+  unavailable: "Unavailable. Relmio could not read the companion's status.",
+  unconfirmed: "Unknown. Relmio could not confirm the companion's state. Check again with Refresh status on the dashboard.",
 });
 // The logs tell an account lock from other causes. A reinstall keeps the login volume and
 // any lock in it, so the advice is the documented recovery, never a reinstall.
@@ -2124,6 +2129,9 @@ function renderDashboardChecking() {
   element("dashboard-installed-names").textContent = "Connections";
   renderDashboardTruth("dashboard-inventory-freshness", "Checking", "checking");
   element("dashboard-last-checked").textContent = "Checking now";
+  // A new check replaces the last failure.
+  element("dashboard-error").hidden = true;
+  element("dashboard-error").textContent = "";
 }
 
 function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(snapshot) } = {}) {
@@ -2346,9 +2354,6 @@ async function loadLocalDashboard() {
   // Opening setup or entering the dashboard again supersedes this check. Its answer is
   // dropped, so it can neither replace a newer view nor change the setup screen.
   const generation = state.dashboardGeneration;
-  renderDashboardChecking();
-  element("dashboard-error").hidden = true;
-  element("dashboard-error").textContent = "";
   try {
     const snapshot = normalizeDashboardSnapshot(await api("/api/local/dashboard"));
     if (generation !== state.dashboardGeneration) return;
@@ -2683,7 +2688,6 @@ function clearOneTimeSetupValues() {
 
 function resetPendingSetupState() {
   invalidatePlan();
-  state.dashboardFocusIdentity = null;
   state.installedTarget = null;
   state.assistantSearxngReviewId = null;
   state.assistantSearxngReview = null;
@@ -2812,10 +2816,14 @@ async function enterDashboardView({
   preserveFocus = false,
   preserveScroll = false,
 } = {}) {
-  // Each entry supersedes the one before it and its inventory check. Refresh is refused
-  // from here on, so a second press while the discard runs starts nothing.
+  // Each entry supersedes the one before it and its inventory check. On the dashboard, a
+  // refresh shows its check from the press: Refresh turns busy and refuses a second press,
+  // the actions pause and the inventory stops reading as current while the discard runs.
+  // If the discard fails, the caller ends that check with renderDashboardFailure; an entry
+  // that was superseded meanwhile leaves the newer view alone.
   const generation = ++state.dashboardGeneration;
-  if (refresh) state.dashboardBusy = true;
+  const onDashboard = document.body.dataset.localView === "dashboard";
+  if (refresh && onDashboard) renderDashboardChecking();
   clearLocalModelPoll();
   element("n8n-local-model-management").hidden = true;
   clearDashboardStaleTimer();
@@ -2836,8 +2844,11 @@ async function enterDashboardView({
   if (!preserveFocus) {
     element("dashboard-title").focus?.({ preventScroll: true });
   }
-  if (refresh) await loadLocalDashboard();
-  else if (state.dashboardSnapshot) {
+  if (refresh) {
+    // Coming from setup, the check starts now, so it restores no focus from before setup.
+    if (!onDashboard) renderDashboardChecking();
+    await loadLocalDashboard();
+  } else if (state.dashboardSnapshot) {
     scheduleDashboardStaleExpiry(state.dashboardSnapshot);
   }
 }
@@ -3078,14 +3089,19 @@ function setClaudeOneTimeKey(key) {
   element("claude-copy-key").dataset.guideState = key ? "fresh" : "none";
 }
 
-// The companion's runtime and approval, in the same words the dashboard uses.
-function renderClaudeStatus({ runtime, approvalExpired, expiresAt }) {
+// The runtime line on the Claude card. Docker's runtimes read as they do on the dashboard.
+function showClaudeRuntime(runtime) {
   const status = element("claude-runtime-status");
   status.dataset.tone = runtime === "running" ? "success" : runtime === "starting" ? "accent" : "warning";
   // The setup guide reads "not-running" for a companion that keeps stopping.
   status.dataset.guideState = claudeKeepsStopping(runtime) ? "not-running" : runtime;
   element("claude-runtime-text").textContent = CLAUDE_RUNTIME_TEXT[runtime];
   element("claude-runtime-help").hidden = !claudeKeepsStopping(runtime);
+}
+
+// The companion's runtime and approval.
+function renderClaudeStatus({ runtime, approvalExpired, expiresAt }) {
+  showClaudeRuntime(runtime);
   element("claude-approval-status").replaceChildren(...(approvalExpired
     ? ["Approval expired ", localTime(expiresAt), ". Renew before use."]
     : ["Approval expires ", localTime(expiresAt), ". Sign-in and model access still need checking."]));
@@ -3095,7 +3111,10 @@ function renderClaudeStatus({ runtime, approvalExpired, expiresAt }) {
 // Docker's first health check runs a minute after the companion starts, and a companion
 // that keeps failing turns unhealthy at its third failed check, about three minutes in.
 // While the card says starting, Relmio reads the companion again every 30 seconds, at
-// most 7 times, and stops once the card is left or the runtime settles.
+// most 7 times. A settled runtime, a companion Relmio no longer finds, or leaving the
+// card ends the reads. An unreadable status shows until a later read finds a runtime, and
+// a failed read only uses up its check. If the last check ends before the runtime settles,
+// the card says the state is unknown and points to Refresh status on the dashboard.
 function watchClaudeStart(runtime) {
   window.clearTimeout(state.claudeStatusTimer);
   state.claudeStatusTimer = null;
@@ -3117,16 +3136,32 @@ function scheduleClaudeStatusPoll(delay = 30_000) {
       return;
     }
     state.claudeStatusChecks -= 1;
-    let snapshot = null;
+    let found = null;
     try {
-      snapshot = normalizeN8nClaudeDashboardSnapshot((await api("/api/local/claude/status")).snapshot);
+      found = await readClaudeStatus();
     } catch {
-      // An unreadable answer uses up this check; the next one may read the companion.
+      // A failed or unreadable read uses up this check; the next one may read the companion.
     }
     if (left()) return;
-    if (snapshot && snapshot.runtime !== "starting") renderClaudeStatus(snapshot);
-    else if (state.claudeStatusChecks > 0) scheduleClaudeStatusPoll();
+    const runtime = found?.runtime;
+    if (runtime === "absent") showClaudeRuntime(runtime);
+    else if (runtime && runtime !== "starting" && runtime !== "unavailable") renderClaudeStatus(found);
+    else if (state.claudeStatusChecks > 0) {
+      if (runtime) showClaudeRuntime(runtime);
+      scheduleClaudeStatusPoll();
+    } else showClaudeRuntime("unconfirmed");
   }, delay);
+}
+
+// One status read: the companion's snapshot, or { runtime: "absent" } or { runtime: "unavailable" }
+// when the server finds no companion or cannot read it. Any other answer throws.
+async function readClaudeStatus() {
+  const result = await api("/api/local/claude/status");
+  if (!hasExactKeys(result, ["target", "managed", "state", "snapshot"]) || result.target !== "n8n-claude-oauth" ||
+      result.managed !== ["healthy", "partial"].includes(result.state)) throw dashboardContractError();
+  if (result.managed) return normalizeN8nClaudeDashboardSnapshot(result.snapshot);
+  if (!["absent", "unavailable"].includes(result.state) || result.snapshot !== null) throw dashboardContractError();
+  return { runtime: result.state };
 }
 
 function renderClaudeManagement(snapshot) {
