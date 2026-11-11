@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import { formatLocalDateTime } from "../src/ui/time.js";
 
 const script = await readFile(new URL("../src/ui/local.js", import.meta.url), "utf8");
+const html = await readFile(new URL("../src/ui/local.html", import.meta.url), "utf8");
 
 function source(start, end) {
   const from = script.indexOf(start);
@@ -23,6 +24,9 @@ const claudeService = (state, overrides) => ({ target: "n8n-claude-oauth", label
   managed: true, state, snapshot: claudeSnapshot(overrides), actions: ["manage-claude", "remove"] });
 const hasExactKeys = (value, keys) => Boolean(value) && typeof value === "object" && !Array.isArray(value) &&
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const claudeInstallResult = { target: "n8n-claude-oauth", endpoint: "http://relmio-claude:14502/v1", baseUrl: "http://relmio-claude:14502/v1",
+  protocol: "openai-chat-completions", networkName: "n8n_default", n8nContainerName: "n8n-n8n-1", hostPublication: "none",
+  clientCredential: "Q".repeat(43), credentialShownOnce: true, deploymentMode: "installed", models: ["claude-sonnet-5-5"], expiresAt: EXPIRES };
 
 // A small DOM stand-in: elements by id, created nodes, and text that includes child nodes.
 function dom() {
@@ -47,11 +51,17 @@ function dom() {
   return { element, make, focused };
 }
 
-function claudeCard() {
+// The Claude card with fake timers. `reply` answers its status reads.
+function claudeCard({ reply = () => ({}) } = {}) {
   const { element, make } = dom();
+  const timers = [];
+  const requests = [];
+  const state = { installedTarget: "n8n-claude-oauth", operationBusy: false, claudeStatusTimer: null, claudeStatusGeneration: 0, claudeStatusChecks: 0 };
+  const page = { hidden: false, createElement: make, querySelector: () => ({ checked: false }), querySelectorAll: () => [] };
   const context = {
-    element, formatLocalDateTime, hasExactKeys, state: { installedTarget: "n8n-claude-oauth" },
-    document: { createElement: make, querySelector: () => ({ checked: false }), querySelectorAll: () => [] },
+    element, formatLocalDateTime, hasExactKeys, state, document: page,
+    window: { setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; }, clearTimeout() {} },
+    api: async (path) => { requests.push(path); return reply(path); },
     assertDashboardKeys(value, keys) { if (!hasExactKeys(value, keys)) throw new Error("contract"); },
     dashboardContractError: () => new Error("contract"),
     isSafeDockerDisplayName: (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value),
@@ -64,7 +74,7 @@ function claudeCard() {
     source("function readClaudeReview(kind)", "\nfunction isN8nLocalModel(target)"),
     "({ renderClaudeManagement, renderClaudeInstallResult, setClaudeOneTimeKey });",
   ].join("\n"), context);
-  return { element, api };
+  return { element, api, state, page, timers, requests };
 }
 
 function dashboardViews() {
@@ -137,9 +147,7 @@ test("Claude approval dates are local and kept in a time element, never a raw ti
 
 test("the Ready step after a Claude install shows a fresh one-time key and a calm starting companion", () => {
   const { element, api } = claudeCard();
-  const result = { target: "n8n-claude-oauth", endpoint: "http://relmio-claude:14502/v1", baseUrl: "http://relmio-claude:14502/v1",
-    protocol: "openai-chat-completions", networkName: "n8n_default", n8nContainerName: "n8n-n8n-1", hostPublication: "none",
-    clientCredential: "Q".repeat(43), credentialShownOnce: true, deploymentMode: "installed", models: ["claude-sonnet-5-5"], expiresAt: EXPIRES };
+  const result = claudeInstallResult;
   api.renderClaudeInstallResult(result);
   assert.equal(element("done-title").textContent, "Claude companion installed");
   assert.equal(element("claude-one-time-key").hidden, false);
@@ -153,6 +161,56 @@ test("the Ready step after a Claude install shows a fresh one-time key and a cal
   assert.equal(element("claude-one-time-key").hidden, true);
   assert.equal(element("claude-copy-key").dataset.guideState, "none");
   assert.throws(() => api.renderClaudeInstallResult({ ...result, hostPublication: "127.0.0.1:14502" }), /unexpected response/u);
+});
+
+test("the Ready view reads a starting companion again until Docker reports another state", async () => {
+  let runtime = "starting";
+  const { element, api, state, page, timers, requests } = claudeCard({
+    reply: () => ({ target: "n8n-claude-oauth", managed: true, state: "partial", snapshot: claudeSnapshot({ runtime }) }),
+  });
+  const tick = () => timers.at(-1).callback();
+  api.renderClaudeInstallResult(claudeInstallResult);
+  assert.equal(timers.at(-1).delay, 30_000);
+  await tick();
+  assert.deepEqual(requests, ["/api/local/claude/status"]);
+  assert.match(element("claude-runtime-text").textContent, /^Starting/u, "starting stays a calm state");
+  // A hidden tab or a running operation sends nothing and tries again later.
+  page.hidden = true;
+  await tick();
+  page.hidden = false;
+  state.operationBusy = true;
+  await tick();
+  state.operationBusy = false;
+  assert.equal(requests.length, 1);
+  runtime = "running";
+  await tick();
+  assert.equal(requests.length, 2);
+  assert.equal(element("claude-runtime-text").textContent, "Running.");
+  assert.equal(element("claude-runtime-status").dataset.tone, "success");
+  assert.equal(state.claudeStatusTimer, null, "a settled companion is not read again");
+
+  // A failing health check shows the recovery advice.
+  runtime = "unhealthy";
+  api.renderClaudeInstallResult(claudeInstallResult);
+  await tick();
+  assert.match(element("claude-runtime-text").textContent, /^Unhealthy/u);
+  assert.equal(element("claude-runtime-help").hidden, false);
+  assert.equal(element("claude-runtime-status").dataset.guideState, "not-running");
+
+  // A companion that stays starting is read at most seven times.
+  runtime = "starting";
+  api.renderClaudeInstallResult(claudeInstallResult);
+  requests.length = 0;
+  for (let turn = 0; turn < 20 && state.claudeStatusTimer !== null; turn += 1) await tick();
+  assert.equal(requests.length, 7);
+
+  // Once the view is left, no request is sent.
+  api.renderClaudeInstallResult(claudeInstallResult);
+  requests.length = 0;
+  element("n8n-claude-management").hidden = true;
+  await tick();
+  assert.equal(requests.length, 0);
+  assert.equal(state.claudeStatusTimer, null);
 });
 
 test("the dashboard row and detail show the Claude approval and never call a lapsed or stopping companion healthy", () => {
@@ -288,6 +346,7 @@ test("the Claude removal review shows only the removal section and Manage brings
     dashboardContractError: () => new Error("contract"),
     isDashboardSnapshotStale: () => false, dashboardToWizardTarget: (target) => target,
     async enterSetupView() {}, resetDashboardActionReview() {}, showStep() {},
+    window: { setTimeout: () => 1, clearTimeout() {} },
   });
   const service = claudeService("healthy");
 
@@ -327,49 +386,62 @@ test("the Claude removal review shows only the removal section and Manage brings
   assert.equal(element("claude-keep-login").checked, false);
 });
 
-test("the Claude review asks the four owner questions before the plan and its final confirmation", () => {
-  const { element } = dom();
-  let accepted = false;
-  const state = { plan: { target: "n8n-claude-oauth" } };
-  const { show, approve } = runInNewContext(
-    `${source("function showReviewStage(stage", "\nfunction prepareInstallPanel")}
-${source("function updateLocalReviewApproval()", '\nelement("install-confirm").addEventListener')}
-({ show: showReviewStage, approve: updateLocalReviewApproval });`,
-    { element, state, isN8nClaude: (target) => target === "n8n-claude-oauth", claudeReviewAccepted: () => accepted },
-  );
+test("Continue opens the Claude plan only with all four review answers, and Install still needs the plan's own confirmation", () => {
+  const { element, make, focused } = dom();
+  // The four answer checkboxes, under the names the page gives them.
+  const names = [...html.matchAll(/data-claude-review="(\w+)"/gu)].map(([, name]) => name);
+  assert.equal(names.length, 4);
+  const answers = new Map(names.map((name) => [name, make("input")]));
+  const page = {
+    querySelector: (selector) => answers.get(/^\[data-claude-review="(\w+)"\]$/u.exec(selector)?.[1]) ?? null,
+    querySelectorAll: (selector) => selector === "[data-claude-review]" ? [...answers.values()] : [],
+  };
+  const state = { operationBusy: false, plan: { target: "n8n-claude-oauth" } };
+  // The real answer check, review stages, approval update with its change listeners, and Continue handler.
+  const { show } = runInNewContext([
+    source("const CLAUDE_REVIEW_KEYS", "\nconst token = readWizardSession"),
+    source("function readClaudeReview(kind)", "\nfunction setClaudeAuthStatus"),
+    source("function showReviewStage(stage", "\nfunction prepareInstallPanel"),
+    source("function updateLocalReviewApproval()", '\nelement("local-background-consent")'),
+    source('element("claude-review-continue").addEventListener("click"', "\n// After an unconfirmed install"),
+    "({ show: showReviewStage });",
+  ].join("\n"), { element, state, document: page, isN8nClaude: (target) => target === "n8n-claude-oauth", clearError() {} });
+  const tick = (input, checked) => { input.checked = checked; input.handlers.change(); };
+  const pressContinue = () => element("claude-review-continue").handlers.click();
+  const install = element("install-settings-button");
 
   show("approval", { focus: false });
-  assert.equal(element("claude-review").hidden, false);
-  assert.equal(element("review-plan").hidden, true);
-  assert.equal(element("review-approval").hidden, true, "the plan confirmation waits for the plan stage");
-  assert.equal(element("install-settings-button").hidden, true);
-  assert.equal(element("claude-review-continue").hidden, false);
-  assert.equal(element("review-title").textContent, "Review Claude use");
-  approve();
-  assert.equal(element("claude-review-continue").disabled, true);
-  accepted = true;
-  approve();
-  assert.equal(element("claude-review-continue").disabled, false);
-  assert.equal(element("install-settings-button").disabled, true, "the plan's own confirmation is still needed");
+  for (const missing of names) {
+    for (const [name, input] of answers) tick(input, name !== missing);
+    assert.equal(element("claude-review-continue").disabled, true, `Continue waits for ${missing}`);
+    pressContinue();
+    assert.equal(element("claude-review").hidden, false, `without ${missing} the review stays open`);
+    assert.equal(element("review-plan").hidden, true, `without ${missing} the plan stays closed`);
+    assert.equal(install.hidden, true);
+  }
 
-  show("plan", { focus: false });
+  tick(answers.get(names.at(-1)), true);
+  assert.equal(element("claude-review-continue").disabled, false);
+  assert.equal(install.disabled, true, "the four answers alone never enable Install");
+  pressContinue();
   assert.equal(element("claude-review").hidden, true);
   assert.equal(element("review-plan").hidden, false);
   assert.equal(element("review-approval").hidden, false);
-  assert.equal(element("install-settings-button").hidden, false);
   assert.equal(element("claude-review-continue").hidden, true);
   assert.equal(element("review-title").textContent, "Review the plan");
-  element("install-confirm").checked = true;
-  approve();
-  assert.equal(element("install-settings-button").disabled, false);
-  accepted = false;
-  approve();
-  assert.equal(element("install-settings-button").disabled, true, "every owner answer stays required");
+  assert.equal(focused.at(-1), element("review-title"), "focus moves to the plan's heading");
+  assert.equal(install.hidden, false);
+  assert.equal(install.disabled, true, "the plan's own confirmation is still needed");
+  tick(element("install-confirm"), true);
+  assert.equal(install.disabled, false);
+  tick(answers.get(names[0]), false);
+  assert.equal(install.disabled, true, "every owner answer stays required");
 
+  // Other plans have no owner answers: Continue stays off and the plan confirmation alone decides.
   state.plan = { target: "xai-grok-build" };
-  approve();
+  element("install-confirm").handlers.change();
   assert.equal(element("claude-review-continue").disabled, true);
-  assert.equal(element("install-settings-button").disabled, false);
+  assert.equal(install.disabled, false);
 });
 
 test("hidden tabs skip status polls and tick once when they show again", async () => {
@@ -408,16 +480,17 @@ pollInstalledImages;`, {
   const listeners = {};
   const calls = [];
   const cleared = [];
-  const pending = { imagesTimer: 5, imagesGeneration: 3, localModelPollTimer: 9 };
+  const pending = { imagesTimer: 5, imagesGeneration: 3, localModelPollTimer: 9, claudeStatusTimer: 4 };
   const page = { hidden: false, addEventListener(name, handler) { listeners[name] = handler; } };
   runInNewContext(script.slice(script.indexOf("// Hidden tabs skip their status requests.")), {
     document: page, state: pending, window: { clearTimeout(timer) { cleared.push(timer); } },
     scheduleInstalledImagesPoll(generation, delay) { calls.push(["images", generation, delay]); },
     scheduleLocalModelPoll(delay) { calls.push(["model", delay]); },
+    scheduleClaudeStatusPoll(delay) { calls.push(["claude", delay]); },
   });
   listeners.visibilitychange();
-  assert.deepEqual(plain(calls), [["images", 3, 0], ["model", 0]]);
-  assert.deepEqual(cleared, [9]);
+  assert.deepEqual(plain(calls), [["images", 3, 0], ["model", 0], ["claude", 0]]);
+  assert.deepEqual(cleared, [9, 4]);
   assert.equal(pending.localModelPollTimer, null);
   page.hidden = true;
   calls.length = 0;

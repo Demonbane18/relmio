@@ -42,19 +42,6 @@ test("expired inventory refuses actions and marks the verified snapshot stale", 
   assert.equal(setup, 0); assert.equal(renders.length, 1); assert.equal(renders[0][1].stale, true); assert.equal(error.focused, true);
 });
 
-test("dashboard initialization enters through safe discard and refresh preserves focus and scroll", async () => {
-  const script = await source(); const section = between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent");
-  const calls = []; const listeners = new Map(); const state = { dashboardBusy: false };
-  const initialize = runInNewContext(`${section}; initializeLocalDashboard;`, { state, document: { querySelectorAll: () => [] }, element: (id) => ({ addEventListener: (event, handler) => listeners.set(`${id}:${event}`, handler) }), async enterDashboardView(options) { calls.push(options ?? null); }, async refreshProjectMeta() { calls.push("meta"); }, enterSetupView() {}, renderDashboardFailure() {}, showError() {}, syncDashboardNavigation() {}, window: { addEventListener() {} } });
-  initialize(); await Promise.resolve(); await Promise.resolve();
-  assert.deepEqual(calls, [null]);
-  listeners.get("dashboard-refresh:click")(); await Promise.resolve();
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), { preserveFocus: true, preserveScroll: true });
-  // The button stays focusable while a check runs, so a second press must not start another.
-  state.dashboardBusy = true; listeners.get("dashboard-refresh:click")(); await Promise.resolve();
-  assert.equal(calls.length, 2);
-});
-
 test("dashboard timer rerenders stale inventory and reduced motion selects auto scrolling", async () => {
   const script = await source(); const stale = between(script, "function isDashboardSnapshotStale", "\nfunction appendDashboardFact"); const motion = between(script, "function preferredScrollBehavior", "\nif (typeof document");
   let callback; let now = Date.parse(snapshot().generatedAt) + 1; const state = { dashboardStaleTimer: 8, dashboardSnapshot: snapshot() };
@@ -113,7 +100,7 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   const clearPoll = between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
   const nodes = new Map();
   const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, dataset: {}, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
-  const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
+  const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, dashboardGeneration: 0, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
   const calls = []; const clearedTimers = [];
   const openDisclosures = [{ open: true }, { open: true }];
   const document = { body: { dataset: {} }, querySelectorAll: () => openDisclosures };
@@ -148,4 +135,105 @@ test("dashboard direct hashes and browser history retain one current navigation 
   sync(); assert.equal(links[2].attributes.get("aria-current"), "location"); window.location.hash = "#dashboard-activity"; sync(); assert.equal(links[4].attributes.get("aria-current"), "location"); window.location.hash = "#unknown"; sync(); assert.equal(links[0].attributes.get("aria-current"), "location");
   const initialize = runInNewContext(`${init}; initializeLocalDashboard;`, { document: { querySelectorAll: () => links, getElementById: () => ({ hidden: false }) }, element: () => ({ addEventListener() {} }), window, syncDashboardNavigation: sync, async enterDashboardView() {}, async refreshProjectMeta() {}, enterSetupView() {}, renderDashboardFailure() {}, showError() {} });
   initialize(); window.location.hash = "#dashboard-connections"; listeners.get("hashchange")(); assert.equal(links[1].attributes.get("aria-current"), "location"); assert.equal(links.filter((link) => link.attributes.has("aria-current")).length, 1);
+});
+
+// Each request waits until the test answers it, so overlapping checks can finish in any order.
+function heldRequests() {
+  const calls = [];
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  return {
+    calls,
+    api: (path) => new Promise((resolve) => calls.push({ path, resolve })),
+    async answer(index, value) { calls[index].resolve(value); await settle(); },
+    settle,
+  };
+}
+
+// The real dashboard entry, inventory check, renderers and buttons on a fake page.
+function dashboardPage(script) {
+  const code = [
+    "const DASHBOARD_STALE_AFTER_MS = 300000;",
+    footerHelpers(script),
+    between(script, "function isDashboardSnapshotStale", "\nfunction appendDashboardFact"),
+    between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"),
+    between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow"),
+    between(script, "function renderDashboardChecking", "\nfunction renderDashboardFailure"),
+    between(script, "async function loadLocalDashboard", "\n// Plan and usage"),
+    between(script, "async function enterSetupView(", "\nfunction syncDashboardNavigation"),
+    between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent"),
+    "({ initialize: initializeLocalDashboard, loadLocalDashboard, enterSetupView, renderFooterForTarget });",
+  ].join("\n");
+  const view = { ...snapshot(), docker: { available: true, version: "29", composeVersion: "5" }, auth: { secretsRevealable: false } };
+  const held = heldRequests(); const nodes = new Map(); const scrolls = []; const failures = [];
+  const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], listeners: {}, lastElementChild: { textContent: "" }, classList: { add() {}, remove() {} }, dataset: {}, disabled: false, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; this.lastElementChild = items.at(-1) ?? null; }, addEventListener(name, handler) { this.listeners[name] = handler; }, getAttribute(name) { return this.attributes.get(name) ?? null; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; this.lastElementChild = items.at(-1) ?? null; }, querySelector: () => null, focus() { document.activeElement = this; } });
+  const element = (id) => nodes.get(id) ?? nodes.set(id, node()).get(id);
+  const body = node("body"); body.dataset.localView = "dashboard";
+  const document = { activeElement: body, body, createElement: node, querySelector: () => node(), querySelectorAll: () => [] };
+  const state = { dashboardBusy: false, dashboardGeneration: 0, dashboardFocusIdentity: null, dashboardSelectedTarget: "codex-chatgpt", dashboardSnapshot: null, dashboardStaleTimer: null, target: "xai-grok-build" };
+  const page = runInNewContext(code, {
+    DASHBOARD_SERVICE_DEFINITIONS: view.services.map(({ target, label }) => ({ target, label })), element, state, document, api: held.api,
+    window: { addEventListener() {}, clearTimeout() {}, setTimeout() { return 1; }, scrollTo(options) { scrolls.push(options); } },
+    clearLocalModelPoll() {}, resetPendingSetupState() {}, preferredScrollBehavior: () => "auto", syncDashboardNavigation() {},
+    normalizeDashboardSnapshot: (value) => value, showDashboardUsage() {},
+    renderDashboardFailure() { failures.push("inventory failure"); }, showError(error) { failures.push(error); },
+    clearMessage() {}, showSetupStage() {}, showStep() {}, async initializeLocalWizard() {}, focusVisibleSetupHeading() {},
+    assistantModeLabel: () => "Disabled", copyText: async () => {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n", dashboardServiceDescription: () => "Verified service", dashboardStateLabel: (value) => value, dashboardStateNode: () => node("span"), dashboardStatusDot: () => node("span"), flashCopied() {}, localTime: () => node("time"), renderDashboardAction: () => null, renderDashboardCompactService: () => node("li"), renderDashboardSectionStatus: () => node("li"), renderDashboardServiceRow: () => node("li"),
+  });
+  return { page, held, element, state, document, view, scrolls, failures };
+}
+
+test("Refresh starts one discard and one inventory check however often it is pressed, and an older check never replaces a newer one", async () => {
+  const { page, held, element, state, document, view, scrolls, failures } = dashboardPage(await source());
+  const paths = (from) => held.calls.slice(from).map(({ path }) => path);
+  const press = (id) => element(id).listeners.click();
+  const [first, older, newest] = [{ ...view }, { ...view }, { ...view }];
+
+  // Entry discards pending setup work before it checks, then shows the top of the page with focus on its title.
+  page.initialize();
+  assert.deepEqual(paths(0), ["/api/local/discard"]);
+  await held.answer(0, { discarded: true });
+  assert.deepEqual(paths(0), ["/api/local/discard", "/api/local/dashboard"]);
+  assert.equal(scrolls.length, 1);
+  assert.equal(document.activeElement, element("dashboard-title"));
+  await held.answer(1, first);
+  assert.equal(state.dashboardSnapshot, first);
+
+  // Two presses while the discard runs and two while the inventory check runs start one of each.
+  element("dashboard-refresh").focus();
+  press("dashboard-refresh"); press("dashboard-refresh");
+  assert.deepEqual(paths(2), ["/api/local/discard"], "a press during the discard starts nothing");
+  await held.answer(2, { discarded: true });
+  assert.deepEqual(paths(2), ["/api/local/discard", "/api/local/dashboard"]);
+  press("dashboard-refresh"); press("dashboard-refresh"); await held.settle();
+  assert.deepEqual(paths(2), ["/api/local/discard", "/api/local/dashboard"], "a press during the inventory check starts nothing");
+  assert.equal(scrolls.length, 1, "Refresh keeps the scroll position");
+  assert.equal(document.activeElement, element("dashboard-refresh"), "Refresh keeps focus on itself");
+
+  // Setup opens and closes while that check runs, so a newer check starts beside it.
+  press("dashboard-new-setup"); await held.settle();
+  press("setup-back-to-dashboard");
+  await held.answer(4, { discarded: true });
+  assert.deepEqual(paths(3), ["/api/local/dashboard", "/api/local/discard", "/api/local/dashboard"]);
+  await held.answer(5, newest);
+  await held.answer(3, older);
+  assert.equal(state.dashboardSnapshot, newest, "the older answer arrives last and is dropped");
+
+  // Once the newest check is shown, Refresh works again.
+  press("dashboard-refresh");
+  assert.deepEqual(paths(6), ["/api/local/discard"]);
+  assert.deepEqual(failures, []);
+});
+
+test("a dashboard answer that arrives after setup opened leaves the Claude notice in place", async () => {
+  const { page, held, element, state, view } = dashboardPage(await source());
+  const loading = page.loadLocalDashboard();
+  await page.enterSetupView();
+  // The person picks the Claude card, whose setup screens carry the one Anthropic notice.
+  page.renderFooterForTarget("n8n-claude-oauth");
+  assert.equal(element("local-footer-claude").hidden, false);
+  await held.answer(0, view);
+  await loading;
+  assert.equal(element("local-footer-claude").hidden, false, "the late answer does not swap the notice for the dashboard selection's");
+  assert.equal(element("local-footer-provider").hidden, true);
+  assert.equal(state.dashboardSnapshot, null, "the late answer is not rendered");
 });

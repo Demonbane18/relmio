@@ -131,6 +131,7 @@ function dockHarness(t, { width = 390, reduced = true, pref = "off", missing = f
     closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) ?? null; }
     setAttribute(key, value) { this.attributes.set(key, String(value)); if (key === "class") this.className = value; }
     getAttribute(key) { return this.attributes.get(key) ?? null; }
+    hasAttribute(key) { return this.attributes.has(key); }
     removeAttribute(key) { this.attributes.delete(key); }
     addEventListener(type, handler) { const list = this.listeners.get(type) ?? []; list.push(handler); this.listeners.set(type, list); }
     fire(type, event = {}) { for (const handler of this.listeners.get(type) ?? []) handler({ target: this, preventDefault() {}, ...event }); }
@@ -531,6 +532,34 @@ test("a fresh key shown after an earlier key needs its own copy", (t) => {
   h.goal.setAttribute("data-guide-state", "fresh");
   h.refresh();
   assert.equal(h.title(), "Allow ChatGPT plan use", "copying an earlier key cannot complete this key's tip");
+});
+
+test("a copy press counts only once the page marks a successful copy", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = dockHarness(t, { pref: "on" });
+  // The tip's control is a copy button: it holds the kit's copy icon.
+  h.goal.append(Object.assign(h.doc.createElement("span"), { className: "rm-icon rm-icon--copy" }));
+  // A second copy button, one that names its copy target, as on the local page.
+  const key = h.node("button", { id: "key-copy" });
+  key.setAttribute("data-copy-target", "key");
+  h.host.content.chapters[0].tips.push({ id: "key", target: "#key-copy", title: "Save the key now", say: "Copy it now.", action: "press", done: "clicked" });
+  h.refresh();
+  h.dispatchCaptured(h.goal, "click");
+  h.refresh();
+  assert.equal(h.title(), "Allow ChatGPT plan use", "the page is idle while the browser still asks for clipboard access");
+  h.host.failureCount = 1;
+  h.refresh();
+  assert.equal(h.title(), "Allow ChatGPT plan use", "a refused copy leaves the tip open");
+  h.dispatchCaptured(h.goal, "click");
+  h.goal.setAttribute("data-copied", "");
+  h.refresh();
+  assert.equal(h.title(), "Save the key now");
+  h.dispatchCaptured(key, "click");
+  h.refresh();
+  assert.equal(h.title(), "Save the key now");
+  key.setAttribute("data-copied", "");
+  h.refresh();
+  assert.equal(h.title(), "Setup complete");
 });
 
 test("a filled field counts once the browser accepts its value", (t) => {

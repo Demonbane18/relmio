@@ -212,6 +212,22 @@ test("an installed companion remains manageable when n8n discovery is empty", as
   }
 });
 
+// The guide sends people who just started n8n to reload this page, not to Refresh status.
+test("Refresh status rereads only the companion, and loading the page looks for n8n again", async () => {
+  const replies = {
+    "/api/discover": { containers: [{ name: "n8n", image: "n8nio/n8n" }] },
+    "/api/networks": { networks: ["n8n_default"], recommended: "n8n_default" },
+    "/api/vps/claude/status": { state: "absent", candidate },
+  };
+  const f = fixture({ adoptCurrent: async () => {}, initialReply: path => replies[path] ?? {} });
+  await settle();
+  assert.deepEqual(f.calls.map(call => call.path), ["/api/discover", "/api/networks", "/api/vps/claude/status"]);
+  assert.equal(f.element("selection-panel").hidden, false);
+  f.calls.length = 0;
+  f.element("refresh-button").handlers.click(); await settle();
+  assert.deepEqual(f.calls.map(call => call.path), ["/api/vps/claude/status"]);
+});
+
 test("a failed post-apply identity check retains the one-time result without another remote read", async () => {
   const f = fixture({ after: async (config, path) => {
     if (path === "/api/vps/claude/apply") {
