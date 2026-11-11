@@ -16,7 +16,7 @@ function nodes() {
   const entries = new Map();
   const element = (id) => {
     if (!entries.has(id)) entries.set(id, {
-      value: "", checked: false, disabled: false, hidden: false, open: false, textContent: "",
+      value: "", checked: false, dataset: {}, disabled: false, hidden: false, open: false, textContent: "",
       handlers: {}, children: [], setCustomValidity() {}, replaceChildren(...items) { this.children = items; },
       addEventListener(name, handler) { this.handlers[name] = handler; },
       set innerHTML(_) { throw new Error("Never use innerHTML for server text"); },
@@ -48,7 +48,6 @@ function planHarness(publicLink) {
   const { element } = nodes();
   element("n8n-stack-public-access").checked = publicLink;
   element("ngrok-hostname").value = "work.example.ngrok.app";
-  element("ngrok-inspector-port").value = "4041";
   element("n8n-stack-port").value = "5679";
   element("n8n-stack-timezone").value = "Asia/Manila";
   element("n8n-stack-assistant-mode").value = "disabled";
@@ -66,14 +65,14 @@ function planHarness(publicLink) {
   return { element, calls, state };
 }
 
-test("stack plan defaults private and opt-in sends ngrok fields", async () => {
+test("stack plan defaults private and opt-in sends only the ngrok hostname", async () => {
   for (const publicLink of [false, true]) {
     const ui = planHarness(publicLink);
     await ui.element("target-form").handlers.submit({ preventDefault() {} });
     const body = ui.calls[0];
     assert.equal(body.publicAccess, publicLink ? "ngrok" : "none");
     assert.equal(Object.hasOwn(body, "ngrokHostname"), publicLink);
-    assert.equal(Object.hasOwn(body, "ngrokInspectorPort"), publicLink);
+    assert.equal(Object.hasOwn(body, "ngrokInspectorPort"), false);
   }
 });
 
@@ -84,17 +83,15 @@ test("ngrok fields are hidden and inert unless public access is checked", () => 
     element, state, isN8nStack: predicates.isN8nStack, invalidatePlan() {},
   });
   update();
-  for (const id of ["ngrok-hostname-field", "ngrok-inspector-field", "ngrok-checklist"]) {
+  for (const id of ["ngrok-hostname-field", "ngrok-checklist"]) {
     assert.equal(element(id).hidden, true);
   }
-  for (const id of ["ngrok-hostname", "ngrok-inspector-port"]) {
-    assert.equal(element(id).disabled, true);
-    assert.equal(element(id).required, false);
-  }
+  assert.equal(element("ngrok-hostname").disabled, true);
+  assert.equal(element("ngrok-hostname").required, false);
   element("n8n-stack-public-access").checked = true;
   update();
   assert.equal(element("ngrok-hostname-field").hidden, false);
-  assert.equal(element("ngrok-inspector-port").required, true);
+  assert.equal(element("ngrok-hostname").required, true);
   assert.match(element("boundary-detail").textContent, /Basic Auth/u);
 });
 
@@ -228,7 +225,7 @@ test("managed discovery preselects its recommended network and blocks duplicate 
     isN8nLocalModel: predicates.isN8nLocalModel, isSafeDockerDisplayName: () => true,
     LOCAL_MODEL_IDS: new Set(["qwen3:0.6b"]),
     clearDashboardStaleTimer() {}, renderTarget() { state.target = element("target-input").value; },
-    showSetupStage() {}, showStep() {}, async initializeLocalWizard() {}, focusVisibleSetupHeading() {},
+    showSetupStage() {}, showStep() {}, clearMessage() {}, async initializeLocalWizard() {}, focusVisibleSetupHeading() {},
     async refreshSelectedN8nContext() { await api.refreshN8nDiscovery(); },
   });
   for (const target of ["n8n-openai-oauth", "n8n-local-model", "n8n-supergrok-oauth", "n8n-ai-assistant"]) {
@@ -245,6 +242,7 @@ test("managed discovery preselects its recommended network and blocks duplicate 
   api.updateN8nChoiceVisibility();
   await api.refreshN8nDiscovery();
   assert.equal(element("n8n-container-field").hidden, false, "refresh must preserve the expanded manual choice");
+  assert.equal("loading" in element("n8n-discovery-status").dataset, false, "the loading mark ends with the answer");
   state.target = "n8n-ai-assistant";
   api.renderSidecarNetworkOptions();
   assert.equal(element("review-button").disabled, true);
@@ -289,8 +287,8 @@ test("healthy stack row opens validated local URL, never an unhealthy endpoint",
   });
   const snapshot = normalize({ target: "local-n8n-stack", assistantMode: "disabled", publicAccess: "none",
     localUrl: stack.localUrl, ngrokPublicUrl: null, n8nContainerName: stack.n8nContainerName,
-    networkName: stack.networkName, endpoints: { n8nLocal: "http://127.0.0.1:5679/", ngrokPublic: null,
-      ngrokInspector: null }, components: { n8n: true, ngrok: false, codeSandbox: false, searxng: false },
+    networkName: stack.networkName, endpoints: { n8nLocal: "http://127.0.0.1:5679/", ngrokPublic: null },
+    components: { n8n: true, ngrok: false, codeSandbox: false, searxng: false },
     canResume: false, canRemove: true });
   assert.equal(snapshot.localUrl, stack.localUrl);
   assert.equal(snapshot.endpoints.ngrokPublic, null);
@@ -300,7 +298,7 @@ test("healthy stack row opens validated local URL, never an unhealthy endpoint",
     addEventListener() {}, setAttribute() {},
     get childElementCount() { return this.children.length; },
   });
-  const views = runInNewContext(`${source('function createDashboardOpenN8nLink(', '\nfunction renderDashboardSectionStatus')}; ({ row: renderDashboardServiceRow, compact: renderDashboardCompactService })`, {
+  const views = runInNewContext(`${source('function dashboardServiceStatus(service)', '\nfunction dashboardBoundary')}\n${source('function createDashboardOpenN8nLink(', '\nfunction renderDashboardSectionStatus')}; ({ row: renderDashboardServiceRow, compact: renderDashboardCompactService })`, {
     document: { createElement }, state: {}, dashboardStatusDot: () => createElement("span"),
     dashboardStateNode: () => createElement("span"),
     dashboardStateLabel: () => "Healthy", dashboardBoundary: () => "Loopback only",
@@ -340,23 +338,33 @@ test("stack removal review replaces the previous Ready eyebrow", () => {
 });
 
 test("the private stack snapshot the server sends passes the page's real endpoint checks", () => {
-  const normalize = runInNewContext(`${source("function readDashboardLoopbackPort(value)", "\nfunction normalizeDashboardBooleans")}
+  const normalize = runInNewContext(`${source("function assertDashboardKeys(value, names)", "\nfunction normalizeDashboardVersion")}
+${source("function hasExactKeys(value, expectedNames)", "\nfunction isSafeAssistantUrl")}
+${source("function readDashboardLoopbackPort(value)", "\nfunction normalizeDashboardBooleans")}
 ${source("function isSafeLocalN8nUrl(value)", "\nfunction normalizeBridgeDashboardSnapshot")}; normalizeStackDashboardSnapshot`, {
-    URL, assertDashboardKeys() {}, DASHBOARD_ASSISTANT_MODES: new Set(["disabled", "sandbox", "sandbox-with-searxng"]),
+    URL, DASHBOARD_ASSISTANT_MODES: new Set(["disabled", "sandbox", "sandbox-with-searxng"]),
     dashboardContractError: () => new Error("Invalid dashboard response"),
     normalizeDashboardBooleans: (value) => value, isSafeDockerDisplayName: (value) => typeof value === "string",
   });
-  // Shape captured from GET /api/local/dashboard for a private stack with Code Sandbox on 2026-10-09.
+  // Shape captured from GET /api/local/dashboard for a private stack with Code Sandbox on 2026-10-09,
+  // without the ngrok inspector URL that servers stopped sending after 0.24.0.
   const project = `relmio-local-n8n-${"6b5e5640b6ce8f62f40ba4393904bb2c"}`;
   const fromServer = { target: "local-n8n-stack", publicAccess: "none", localUrl: "http://localhost:5679",
     ngrokPublicUrl: null, n8nContainerName: `${project}-n8n-1`, networkName: `${project}_edge`, assistantMode: "sandbox",
-    endpoints: { n8nLocal: "http://localhost:5679", ngrokPublic: null, ngrokInspector: null },
+    endpoints: { n8nLocal: "http://localhost:5679", ngrokPublic: null },
     components: { n8n: true, ngrok: false, codeSandbox: true, searxng: false }, canResume: false, canRemove: true };
   const snapshot = normalize(fromServer);
   assert.equal(snapshot.endpoints.n8nLocal, "http://localhost:5679");
   assert.equal(snapshot.localUrl, "http://localhost:5679");
   // A localhost endpoint that does not match the validated localUrl is still refused.
   assert.throws(() => normalize({ ...fromServer, endpoints: { ...fromServer.endpoints, n8nLocal: "http://localhost:6000" } }),
+    /Invalid dashboard response/u);
+  // The retired inspector URL is refused, so an old snapshot cannot bring it back.
+  const publicStack = { ...fromServer, publicAccess: "ngrok", ngrokPublicUrl: "https://work.example.ngrok.app",
+    endpoints: { ...fromServer.endpoints, ngrokPublic: "https://work.example.ngrok.app" },
+    components: { ...fromServer.components, ngrok: true } };
+  assert.equal(normalize(publicStack).endpoints.ngrokPublic, "https://work.example.ngrok.app");
+  assert.throws(() => normalize({ ...publicStack, endpoints: { ...publicStack.endpoints, ngrokInspector: "http://127.0.0.1:4041/" } }),
     /Invalid dashboard response/u);
   // Older servers send a 127.0.0.1 endpoint and no localUrl.
   const legacy = { ...fromServer, endpoints: { ...fromServer.endpoints, n8nLocal: "http://127.0.0.1:5679/" } };

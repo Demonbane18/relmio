@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -16,6 +17,7 @@ import {
   changelogReleases,
   guideSummary,
   markdownOutline,
+  markdownSections,
   releaseId,
 } from "../app/docs/markdownText.ts";
 
@@ -33,6 +35,9 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
     );
     await mkdir(dirname(generatorPath), { recursive: true });
     await mkdir(join(fixtureRoot, "docs"), { recursive: true });
+    const helperPath = join(fixtureRoot, "web", "app", "docs", "markdownText.ts");
+    await mkdir(dirname(helperPath), { recursive: true });
+    await copyFile(new URL("../app/docs/markdownText.ts", import.meta.url), helperPath);
     await writeFile(generatorPath, sourceGenerator, "utf8");
     await Promise.all(
       [
@@ -75,6 +80,14 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
       "# getting-started.md\n\nSee [Getting started](/docs/getting-started).\n",
     );
     assert.equal(generated.changelogContent, "# Changelog\n\n- Fixture entry\n");
+    const sectionsPath = join(fixtureRoot, "web", "app", "docs", "generated-sections.json");
+    const sectionsSource = await readFile(sectionsPath, "utf8");
+    assert.deepEqual(JSON.parse(sectionsSource)[0], {
+      slug: "getting-started",
+      id: "getting-started-md",
+      heading: "getting-started.md",
+      text: "See Getting started.",
+    });
     await execFileAsync(process.execPath, [generatorPath, "--check"]);
 
     // Git for Windows may check the generated module out with CRLF too.
@@ -89,6 +102,16 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
       execFileAsync(process.execPath, [generatorPath, "--check"]),
       (error) => error.code === 1 && /Generated documentation is out of date/u.test(error.stderr),
     );
+
+    // Both generated files are checked, including when only the index drifts.
+    await writeFile(generatedPath, generatedSource, "utf8");
+    await writeFile(sectionsPath, sectionsSource.replace("See Getting started.", "Stale section."), "utf8");
+    await assert.rejects(
+      execFileAsync(process.execPath, [generatorPath, "--check"]),
+      (error) => error.code === 1 && /Generated documentation is out of date/u.test(error.stderr),
+    );
+    await writeFile(sectionsPath, sectionsSource.replace(/\n/gu, "\r\n"), "utf8");
+    await execFileAsync(process.execPath, [generatorPath, "--check"]);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
@@ -186,4 +209,38 @@ test("cuts a guide summary at a word boundary when no sentence fits", () => {
   assert.ok(summary.endsWith("…"), summary);
   assert.ok(summary.length <= 161);
   assert.doesNotMatch(summary, / …$/u);
+});
+
+test("indexes heading anchors and plain section text, keeping fenced code in its section", () => {
+  const markdown = [
+    "# Guide",
+    "",
+    "Check the **host key**.",
+    "## Use `relmio_start` with [the dashboard](https://example.com/x) ##",
+    "> Compare the fingerprint.",
+    "- On Windows, open [PowerShell](https://example.com/terminal).",
+    "```sh",
+    "## not a heading",
+    "printf 'host key'",
+    "```",
+    "### Second **part**",
+    "#### Deeper heading",
+    "| Setting | Value |",
+    "| --- | --- |",
+    "| platform | windows |",
+  ].join("\n");
+
+  assert.deepEqual(markdownSections(markdown), [
+    { id: "guide", heading: "Guide", text: "Check the host key." },
+    {
+      id: "use-relmio-start-with-the-dashboard",
+      heading: "Use relmio_start with the dashboard",
+      text: "Compare the fingerprint. On Windows, open PowerShell. ## not a heading printf 'host key'",
+    },
+    {
+      id: "second-part",
+      heading: "Second part",
+      text: "Deeper heading Setting Value platform windows",
+    },
+  ]);
 });

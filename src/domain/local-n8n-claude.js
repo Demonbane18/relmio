@@ -79,15 +79,20 @@ export function createSafeLocalN8nClaudeInstallResult(result, plan) {
   };
 }
 
+// What Docker reports for the companion container. Only "running" (started, not restarting, health check passing) counts as healthy.
+const RUNTIMES = Object.freeze(["running", "starting", "restarting", "unhealthy", "stopped"]);
+
 export function createSafeLocalN8nClaudeSnapshot(snapshot) {
   if (snapshot?.target !== LOCAL_N8N_CLAUDE_TARGET || snapshot.endpoint !== LOCAL_N8N_CLAUDE_ENDPOINT ||
       snapshot.auth?.configured !== true || snapshot.auth.disclosure !== "one-time" ||
       snapshot.canRemove !== true || !validModels(snapshot.models) || !validExpiry(snapshot.expiresAt) ||
-      typeof snapshot.approvalExpired !== "boolean") throw new TypeError("The local Claude snapshot is invalid.");
+      typeof snapshot.approvalExpired !== "boolean" ||
+      !RUNTIMES.includes(snapshot.runtime)) throw new TypeError("The local Claude snapshot is invalid.");
   return {
     target: LOCAL_N8N_CLAUDE_TARGET, endpoint: LOCAL_N8N_CLAUDE_ENDPOINT,
     auth: { configured: true, disclosure: "one-time" }, canRemove: true,
     models: [...snapshot.models], expiresAt: snapshot.expiresAt, approvalExpired: snapshot.approvalExpired,
+    runtime: snapshot.runtime,
   };
 }
 
@@ -95,16 +100,16 @@ export function createSafeLocalN8nClaudeStatus(result) {
   if (result?.target !== LOCAL_N8N_CLAUDE_TARGET || typeof result.managed !== "boolean" ||
       !["absent", "healthy", "partial", "unavailable"].includes(result.state) ||
       result.managed !== ["healthy", "partial"].includes(result.state)) throw new TypeError("The local Claude status is invalid.");
-  return {
-    target: LOCAL_N8N_CLAUDE_TARGET, managed: result.managed, state: result.state,
-    snapshot: result.managed ? createSafeLocalN8nClaudeSnapshot(result.snapshot) : null,
-  };
+  const snapshot = result.managed ? createSafeLocalN8nClaudeSnapshot(result.snapshot) : null;
+  if (result.state === "healthy" && snapshot.runtime !== "running") throw new TypeError("The local Claude status is invalid.");
+  return { target: LOCAL_N8N_CLAUDE_TARGET, managed: result.managed, state: result.state, snapshot };
 }
 
 export function createSafeLocalN8nClaudeChangeResult(result, action) {
   if (result?.target !== LOCAL_N8N_CLAUDE_TARGET ||
-      (action === "remove" ? result.removed !== true : result.changed !== true) ||
+      (action === "remove" ? result.removed !== true || typeof result.loginKept !== "boolean" : result.changed !== true) ||
       (action === "renew" && !validExpiry(result.expiresAt))) throw new TypeError("The local Claude action result is invalid.");
-  return { target: LOCAL_N8N_CLAUDE_TARGET, ...(action === "remove" ? { removed: true } : { changed: true }),
+  return { target: LOCAL_N8N_CLAUDE_TARGET,
+    ...(action === "remove" ? { removed: true, loginKept: result.loginKept } : { changed: true }),
     ...(action === "renew" ? { expiresAt: result.expiresAt } : {}) };
 }

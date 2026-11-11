@@ -1,6 +1,7 @@
 import {
   INSTALL_ROOT,
   MANAGED_MARKER_PATH,
+  SHARED_ROOT_COMMAND,
   SHARED_ROOT_MARKER_CONTENT,
   SHARED_ROOT_MARKER_PATH,
   SIDECAR_MARKER_CONTENT,
@@ -217,8 +218,13 @@ export function createAssistantDeploymentCommands({ installation, startupScope =
   }
   const startupServices = validateAssistantStartupScope(safeInstallation, startupScope);
   return [
-    "install -d -m 0755 " + INSTALL_ROOT,
-    "install -d -m 0700 " + ASSISTANT_ROOT,
+    // The guard every installer runs first: /docker and the shared folder are root's own, and the
+    // shared folder is created or set to mode 0700.
+    SHARED_ROOT_COMMAND,
+    // Creates the Assistant folder for root only, then proves it is root's 0700 folder and not a link.
+    "[ ! -L " + ASSISTANT_ROOT + " ] && if [ ! -e " + ASSISTANT_ROOT + " ]; then mkdir -m 0700 " +
+      ASSISTANT_ROOT + "; fi && [ -d " + ASSISTANT_ROOT + " ] && [ \"$(stat -c %u:%a " +
+      ASSISTANT_ROOT + ")\" = 0:700 ]",
     "chmod 600 " + SHARED_ROOT_MARKER_PATH + " " + ASSISTANT_MARKER_PATH +
       " " + ASSISTANT_ROOT + "/.env",
     "chmod 644 " + publicPaths.join(" "),

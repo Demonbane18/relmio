@@ -99,7 +99,6 @@ export function createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }
     `N8N_ENCRYPTION_KEY=${composeDotenvLiteral(runtimeSecrets.n8nEncryptionKey)}`,
     ...(marker.publicAccess === "ngrok" ? [`NGROK_DOMAIN=${composeDotenvLiteral(marker.ngrokHostname)}`] : []),
     `N8N_LOCAL_PORT=${composeDotenvLiteral(marker.n8nPort)}`,
-    ...(marker.publicAccess === "ngrok" ? [`NGROK_INSPECTOR_PORT=${composeDotenvLiteral(marker.ngrokInspectorPort)}`] : []),
     `GENERIC_TIMEZONE=${composeDotenvLiteral(marker.timezone)}`,
   ];
   if (marker.assistantMode !== "disabled") {
@@ -174,12 +173,11 @@ ${labelLines}
 ${marker.publicAccess === "ngrok" ? `  ngrok:
     image: ${LOCAL_N8N_STACK_IMAGES.ngrok}
     restart: unless-stopped
-    command: ["http", "http://n8n:5678", "--url=https://\${NGROK_DOMAIN}", "--traffic-policy-file=/run/secrets/ngrok-traffic-policy.yml"]
+    # ngrok publishes no host port. Its agent API stays on loopback in this container for the health check, and --inspect=false keeps no copies of requests.
+    command: ["http", "http://n8n:5678", "--url=https://\${NGROK_DOMAIN}", "--traffic-policy-file=/run/secrets/ngrok-traffic-policy.yml", "--inspect=false"]
     environment:
       NGROK_AUTHTOKEN: \${NGROK_AUTHTOKEN}
       NGROK_CONFIG: /etc/ngrok/ngrok.yml
-    ports:
-      - "127.0.0.1:${marker.ngrokInspectorPort}:4040"
     volumes:
       - ./ngrok.yml:/etc/ngrok/ngrok.yml:ro,Z
     secrets:
@@ -309,7 +307,7 @@ ${labelLines}
 }
 
 export function createNgrokConfig() {
-  return "version: 3\nagent:\n  web_addr: 0.0.0.0:4040\n";
+  return "version: 3\nagent:\n  web_addr: 127.0.0.1:4040\n";
 }
 
 export function createSearxngSettings() {

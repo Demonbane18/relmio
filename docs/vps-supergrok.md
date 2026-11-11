@@ -44,8 +44,19 @@ your existing credentials or provider selections.
 ## Management and safety
 
 The companion files live in `/docker/n8n-openai-oauth/supergrok`, with a sibling
-owned operation lock under the same managed root. The companion joins the
-selected existing Docker network and publishes no host port. Relmio does not
+owned operation lock under the same managed root. A new shared root is
+created as mode `0700` root:root. An existing folder from an earlier release
+is set to mode `0700` the next time you confirm a change on that server, such
+as an install, update, removal, sign-in or sign-out. Checking status,
+reviewing a plan, sign-in polling and cancelling an image sign-in never
+change it. That change does not reset the folder's existing group. The companion joins the
+selected existing Docker network and publishes no host port. After install,
+status, sign-in, sign-out and removal require the same Docker network name
+and ID and the same n8n container name. They keep working if n8n is recreated
+under that name on that network. A different n8n on that network is refused.
+A different or recreated network is refused, and the message names
+the network SuperGrok was installed on. A fresh install plan is still checked
+against the reviewed n8n container. Relmio does not
 modify, rebuild, stop, recreate or restart n8n, its image or Compose file.
 Sibling ChatGPT and Assistant installations remain untouched.
 

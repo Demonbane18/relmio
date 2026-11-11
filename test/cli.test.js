@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -670,4 +671,43 @@ test("grok --n8n selects only the private companion with exact argument handling
     argumentsList: ["grok", "login", "--n8n"], isInteractive: () => false, log: () => {},
     resolveN8nSuperGrokInstallRoot: () => { throw new Error("Must refuse before filesystem access"); },
   }), 1);
+});
+
+test("commands that never start the wizard do not load its server or SSH and OAuth libraries", async (t) => {
+  // status and stop need a parent without symbolic links (the macOS temporary folder is one).
+  const directory = await mkdtemp(join(await realpath(tmpdir()), "relmio-cli-loads-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  // Preloaded into the CLI process: appends the URL of every module it loads to RELMIO_TEST_LOADS.
+  const recorder = join(directory, "record-loads.mjs");
+  await writeFile(recorder, [
+    'import { appendFileSync } from "node:fs";',
+    'import { registerHooks } from "node:module";',
+    "registerHooks({ load(url, context, nextLoad) {",
+    "  appendFileSync(process.env.RELMIO_TEST_LOADS, `${url}\\n`);",
+    "  return nextLoad(url, context);",
+    "} });",
+    "",
+  ].join("\n"));
+  const commands = [
+    [["--version"], /^\d+\.\d+\.\d+/u],
+    [["--help"], /Usage: relmio \[/u],
+    [["claude", "--help"], /Usage: relmio claude/u],
+    ...(process.platform === "win32" ? [] : [[["status"], /not running/u], [["stop"], /not running/u]]),
+  ];
+  for (const [index, [command, output]] of commands.entries()) {
+    const loads = join(directory, `loads-${index}.txt`);
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", pathToFileURL(recorder).href, resolve("src/cli.js"), ...command],
+      { env: { ...process.env, HOME: directory, RELMIO_HOME: join(directory, ".relmio"), RELMIO_TEST_LOADS: loads } },
+    ).catch((error) => error);
+    assert.match(result.stdout, output, command.join(" "));
+    const loaded = (await readFile(loads, "utf8")).trim().split("\n");
+    assert.ok(loaded.some((url) => url.endsWith("/src/cli.js")), command.join(" "));
+    assert.deepEqual(
+      loaded.filter((url) => /\/src\/web\/|\/node_modules\/(?:ssh2|jose|ws)\//u.test(url)),
+      [],
+      command.join(" "),
+    );
+  }
 });

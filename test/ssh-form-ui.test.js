@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
-import { bindSshAuthentication, createCredentialSshGuard, readSshIdentity, sameSshIdentity, validateSshIdentity } from "../src/ui/ssh-form.js";
+import { bindSshAuthentication, clearHostReport, createCredentialSshGuard, describeHostReport, readSshIdentity, renderHostReport, sameSshIdentity, validateSshIdentity } from "../src/ui/ssh-form.js";
+import { wizardApiError } from "../src/ui/session.js";
+import { siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
 import { getHostingProvider } from "../src/domain/hosting-providers.js";
+import { buildVpsHostReport } from "../src/domain/vps-host-report.js";
 
 function browserFixture(t) {
   const previous = { document: globalThis.document, window: globalThis.window, fetch: globalThis.fetch, MutationObserver: globalThis.MutationObserver };
@@ -310,4 +313,163 @@ test("guard-owned identity is unavailable after replacement and ended connection
   await guard.after("/api/ssh/connect", { identity: current });
   await guard.after("/api/install", {});
   assert.equal(guard.adoptedIdentity(), null);
+});
+
+for (const page of [
+  { file: "app.js", end: "\nfunction resetVpsOwner" },
+  { file: "assistant.js", end: "\nasync function loadNetworks" },
+  { file: "supergrok-vps.js", end: "\nfunction selectedBoundary", directBody: true },
+  { file: "claude-vps.js", end: "\nfunction selectedBoundary", directBody: true },
+  { file: "local-model-vps.js", end: '\nfor (const name of ["click"', directBody: true },
+]) {
+  test(`${page.file} keeps a failed call's status, code and unknown outcome for error help`, async () => {
+    const script = await readFile(`src/ui/${page.file}`, "utf8");
+    const start = script.indexOf("async function api(");
+    const end = script.indexOf(page.end, start);
+    assert.ok(start >= 0 && end > start);
+    const api = runInNewContext(`${script.slice(start, end)}; api`, {
+      token: "fixture", wizardApiError, siwcErrorFromResponse,
+      sshSession: { async before() {}, async after() {}, async adoptCurrent() {} },
+      fetch: async () => ({ ok: false, status: 504, json: async () => ({
+        error: "The remote command timed out.", code: "vps_step_start", remoteOutcomeUnknown: true,
+      }) }),
+    });
+    await assert.rejects(() => api("/api/discover", page.directBody ? {} : { method: "POST", body: {} }), (error) => {
+      assert.equal(error.message, "The remote command timed out.");
+      assert.equal(error.status, 504);
+      assert.equal(error.code, "vps_step_start");
+      assert.equal(error.remoteOutcomeUnknown, true);
+      return true;
+    });
+  });
+}
+
+const hostFacts = { os: "Ubuntu 22.04.5 LTS", kernel: "5.15.0-140-generic", arch: "aarch64", dockerVersion: "29.5.2",
+  composeVersion: "5.6.1", buildxVersion: null, memoryBytes: 8 * 1024 ** 3, cpus: 4, security: ["apparmor", "seccomp", "selinux"] };
+const rootSession = { ...identity, username: "root", privilege: "root", loginUid: 0, scope: "vps" };
+
+test("the host report is a one-line label and the warnings for this page's flow, problems first", () => {
+  const report = buildVpsHostReport({ identity: rootSession, host: { ...hostFacts, arch: "riscv64" } });
+  const grok = describeHostReport(report, "supergrok");
+  assert.equal(grok.label, "Server check: CPU problem, 2 warnings");
+  assert.equal(grok.facts, "Ubuntu 22.04.5 LTS, riscv64, Docker 29.5.2, Compose 5.6.1.");
+  assert.deepEqual(grok.issues.map(({ level }) => level), ["fail", "warn", "warn"]);
+  assert.match(grok.issues[0].text, /riscv64 CPU/u);
+  // The ChatGPT bridge gets its own CPU warning and the SELinux warning, not Grok's refusal.
+  const bridge = describeHostReport(report, "chatgpt");
+  assert.equal(bridge.issues.some(({ level }) => level === "fail"), false);
+  assert.doesNotMatch(bridge.label, /problem/u);
+  assert.equal(bridge.issues.some(({ text }) => /SELinux/u.test(text)), true);
+  assert.equal(grok.issues.some(({ text }) => /SELinux/u.test(text)), false);
+
+  const clean = describeHostReport(buildVpsHostReport({ identity: rootSession,
+    host: { ...hostFacts, os: "Ubuntu 24.04.4 LTS", arch: "x86_64", buildxVersion: "0.38.1", security: ["apparmor"] } }), "claude");
+  assert.equal(clean.label, "Server check: no warnings");
+  assert.deepEqual(clean.issues, []);
+
+  // A sudo session fails the root-only pages. The closed row names every failed check once.
+  const sudo = describeHostReport(buildVpsHostReport({ identity, host: { ...hostFacts, arch: "riscv64" } }), "claude");
+  assert.match(sudo.label, /^Server check: Sign-in and CPU problems, \d warnings$/u);
+
+  // A connection without facts still reports, and anything that is not a report is not shown.
+  assert.equal(describeHostReport(buildVpsHostReport({ identity: rootSession }), "claude").facts, "Server facts are unavailable.");
+  assert.equal(describeHostReport({ host: hostFacts }, "claude"), null);
+  assert.equal(describeHostReport(null, "claude"), null);
+  // Text that is not a short string never reaches the page, and an unknown check gets a plain name.
+  const odd = describeHostReport({ host: { os: { toString: () => "x" }, arch: "x".repeat(81) },
+    rows: [{ level: "warn", text: "x".repeat(241), flows: [] }, { level: "warn", text: 5, flows: [] }, { id: "__proto__", level: "fail", text: "Kept.", flows: "all" }] }, "claude");
+  assert.equal(odd.label, "Server check: Server problem");
+  assert.equal(odd.facts, "Server facts are unavailable.");
+});
+
+test("the SSH guard shows the host report closed, for its selection, and clears it when the session ends", async t => {
+  browserFixture(t);
+  const node = (extra = {}) => ({
+    textContent: "", className: "", children: [], attributes: new Map(),
+    append(...children) { this.children.push(...children); },
+    prepend(child) { this.children.unshift(child); child.parent = this; },
+    remove() { this.parent.children = this.parent.children.filter(item => item !== this); },
+    setAttribute(name, value) { this.attributes.set(name, value); },
+    ...extra,
+  });
+  // A row of its own starts hidden. A step's own disclosure starts visible with its summary and text.
+  const box = (hidden, label, ...text) => {
+    const summary = node({ textContent: label });
+    const body = node();
+    body.children.push(...text);
+    return { hidden, open: false, summary, body, querySelector: selector => selector === "summary" ? summary : body };
+  };
+  const own = box(true, "Server check");
+  const shared = box(false, "About the server check", "static text");
+  const boxes = [own, shared];
+  globalThis.document.querySelectorAll = selector => selector === "[data-host-report]" ? boxes : [];
+  globalThis.document.createElement = () => node();
+  const reads = [];
+  let report = buildVpsHostReport({ identity: rootSession, host: hostFacts });
+  globalThis.fetch = async path => {
+    if (path.startsWith("/api/ssh/host-report")) {
+      reads.push(path);
+      return { ok: true, json: async () => report };
+    }
+    return { ok: true, json: async () => rootSession };
+  };
+  const selection = { flow: "claude", container: "", network: "" };
+  const guard = createCredentialSshGuard({ token: "fixture", onMismatch() {}, hostReport: () => selection });
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  guard.refreshHostReport();
+  assert.deepEqual(reads, [], "no report is read before a connection is verified");
+
+  await guard.after("/api/ssh/connect", { identity: rootSession });
+  await settle();
+  assert.deepEqual(reads, ["/api/ssh/host-report"]);
+  for (const item of boxes) {
+    assert.equal(item.hidden, false);
+    assert.equal(item.open, false, "the report never opens by itself");
+    assert.equal(item.summary.textContent, "Server check: 4 warnings");
+    const region = item.body.children[0];
+    assert.equal(region.attributes.get("role"), "region");
+    const [facts, list, note] = region.children;
+    assert.equal(facts.textContent, "Ubuntu 22.04.5 LTS, aarch64, Docker 29.5.2, Compose 5.6.1.");
+    assert.equal(list.children.length, 4);
+    assert.ok(list.children.every(entry => entry.textContent.startsWith("Warning: ")));
+    assert.match(note.textContent, /only repeats what Docker reported/u);
+  }
+  assert.deepEqual(shared.body.children.slice(1), ["static text"], "the step's own text stays under the report");
+
+  // The selected n8n and network are sent, so the server can add the network row.
+  Object.assign(selection, { container: "n8n", network: "n8n_default" });
+  report = buildVpsHostReport({ identity: rootSession, host: { ...hostFacts, os: "Ubuntu 24.04.4 LTS", arch: "x86_64", security: [] } });
+  own.open = true;
+  guard.refreshHostReport();
+  await settle();
+  assert.equal(reads.at(-1), "/api/ssh/host-report?container=n8n&network=n8n_default");
+  assert.equal(own.summary.textContent, "Server check: 1 warning");
+  assert.equal(own.open, true, "a report the person opened stays open when it changes");
+  assert.equal(own.body.children.length, 1, "the earlier details are replaced");
+
+  await guard.after("/api/disconnect", {});
+  assert.equal(own.hidden, true);
+  assert.equal(own.open, false);
+  assert.equal(own.body.children.length, 0);
+  assert.equal(shared.hidden, false);
+  assert.equal(shared.summary.textContent, "About the server check");
+  assert.deepEqual(shared.body.children, ["static text"]);
+  // A late answer for the ended session is not shown.
+  await settle();
+  assert.equal(own.hidden, true);
+
+  // A report that cannot be read is simply not shown.
+  await guard.after("/api/ssh/connect", { identity: rootSession });
+  await settle();
+  assert.equal(own.hidden, false);
+  globalThis.fetch = async path => path.startsWith("/api/ssh/host-report")
+    ? { ok: false, status: 400, json: async () => ({ error: "The host report selection is invalid." }) }
+    : { ok: true, json: async () => rootSession };
+  guard.refreshHostReport();
+  await settle();
+  assert.equal(own.hidden, true);
+  renderHostReport(report, "claude");
+  assert.equal(own.hidden, false);
+  clearHostReport();
+  assert.equal(own.hidden, true);
 });

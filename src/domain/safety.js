@@ -83,8 +83,20 @@ const COMPOSE_PREFIX =
 
 export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then [ ! -L ${INSTALL_ROOT} ] && [ -d ${INSTALL_ROOT} ] || exit 43; for p in ${SHARED_ROOT_MARKER_PATH} ${MANAGED_MARKER_PATH} ${SIDECAR_BUILD_IGNORE_PATH} ${SIWC_MIGRATION_PENDING_PATH} ${SIWC_MIGRATED_PATH} ${INSTALL_ROOT}/auth ${INSTALL_ROOT}/siwc ${INSTALL_ROOT}/Dockerfile ${INSTALL_ROOT}/package.json ${INSTALL_ROOT}/package-lock.json ${INSTALL_ROOT}/services ${INSTALL_ROOT}/services/siwc-session.mjs ${INSTALL_ROOT}/services/siwc-handoff.mjs ${INSTALL_ROOT}/services/local-integration-lifecycle-lock.js ${INSTALL_ROOT}/services/codex-images.mjs ${INSTALL_ROOT}/services/model-discovery.mjs ${INSTALL_ROOT}/gateway ${INSTALL_ROOT}/gateway/openai-oauth-sidecar.mjs ${INSTALL_ROOT}/infrastructure ${INSTALL_ROOT}/infrastructure/local-process.js ${INSTALL_ROOT}/infrastructure/process-identity.js ${INSTALL_ROOT}/docker-compose.yml; do [ ! -L "$p" ] || exit 43; done; if [ -e ${INSTALL_ROOT}/auth/auth.json ]; then [ -f ${SIWC_MIGRATED_PATH} ] && [ "$(cat ${SIWC_MIGRATED_PATH})" = '${SIWC_MIGRATION_MARKER_CONTENT.trim()}' ] || exit 42; fi; if [ -e ${SHARED_ROOT_MARKER_PATH} ]; then [ -f ${SHARED_ROOT_MARKER_PATH} ] && [ "$(cat ${SHARED_ROOT_MARKER_PATH})" = "${SHARED_ROOT_MARKER_CONTENT.trim()}" ] || exit 42; if [ -e ${MANAGED_MARKER_PATH} ]; then [ -f ${MANAGED_MARKER_PATH} ] && [ "$(cat ${MANAGED_MARKER_PATH})" = "${SIDECAR_MARKER_CONTENT.trim()}" ] || exit 42; printf '%s\\n' managed; else [ ! -e ${INSTALL_ROOT}/siwc/host.json ] || exit 42; printf '%s\\n' new; fi; elif [ -f ${MANAGED_MARKER_PATH} ] && [ "$(cat ${MANAGED_MARKER_PATH})" = "${SIDECAR_MARKER_CONTENT.trim()}" ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
 
+// Relmio's shared folder is for root only. Both commands change the server, so a caller runs
+// them only after it has checked the owner's final confirmation. Status reads, sign-in polls
+// and operation locks never run them. The session folder inside keeps its own owner; Docker
+// mounts it for the container.
+const SHARED_ROOT_PARENT_GUARD = `[ -d /docker ] && [ ! -L /docker ] && [ "$(stat -c %u /docker)" = 0 ] && [ $((0$(stat -c %a /docker) & 022)) -eq 0 ] && [ ! -L ${INSTALL_ROOT} ]`;
+// The one place the folder's mode is set: only on a real folder that is already root's own.
+const SHARED_ROOT_SET_MODE = `[ -d ${INSTALL_ROOT} ] && [ "$(stat -c %u ${INSTALL_ROOT})" = 0 ] && [ $((0$(stat -c %a ${INSTALL_ROOT}) & 022)) -eq 0 ] && chmod 0700 ${INSTALL_ROOT}`;
+// A confirmed install or replacement: creates the folder with mode 0700, or sets an existing one.
+export const SHARED_ROOT_COMMAND = `${SHARED_ROOT_PARENT_GUARD} && if [ ! -e ${INSTALL_ROOT} ]; then mkdir -m 0700 ${INSTALL_ROOT} && chown -h 0:0 ${INSTALL_ROOT}; fi && ${SHARED_ROOT_SET_MODE}`;
+// A confirmed change to something already installed: sets an existing folder and never creates one.
+export const SHARED_ROOT_TIGHTEN_COMMAND = `${SHARED_ROOT_PARENT_GUARD} && ${SHARED_ROOT_SET_MODE}`;
+
 const DEPLOYMENT_COMMANDS = Object.freeze([
-  `[ -d /docker ] && [ ! -L /docker ] && [ "$(stat -c %u /docker)" = 0 ] && [ $((0$(stat -c %a /docker) & 022)) -eq 0 ] && [ ! -L ${INSTALL_ROOT} ] && if [ ! -e ${INSTALL_ROOT} ]; then mkdir -m 0755 ${INSTALL_ROOT}; fi && [ -d ${INSTALL_ROOT} ] && [ "$(stat -c %u ${INSTALL_ROOT})" = 0 ] && [ $((0$(stat -c %a ${INSTALL_ROOT}) & 022)) -eq 0 ]`,
+  SHARED_ROOT_COMMAND,
   `install -d -m 0700 -o 1000 -g 1000 ${INSTALL_ROOT}/siwc`,
   `install -d -m 0755 ${INSTALL_ROOT}/services ${INSTALL_ROOT}/gateway ${INSTALL_ROOT}/infrastructure`,
   `${COMPOSE_PREFIX} config --quiet`,
@@ -133,6 +145,7 @@ const ALLOWED_SIDECAR_COMMANDS = new Set([
   SIDECAR_BUILD_IGNORE_GUARD,
   SIDECAR_FRESH_CONTEXT_GUARD,
   SIDECAR_MANAGED_CONTEXT_GUARD,
+  SHARED_ROOT_TIGHTEN_COMMAND,
   ...DEPLOYMENT_COMMANDS,
   ...Object.values(VERIFICATION_COMMANDS),
 ]);

@@ -4,7 +4,8 @@ import { isDeepStrictEqual } from "node:util";
 import { validateDockerName } from "../domain/validation.js";
 import { validateDockerObjectId } from "../domain/local-n8n-sidecar.js";
 import { validateInstallId } from "../domain/local-endpoints.js";
-import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
+import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
+import { requireSupportedVpsCpu } from "../domain/vps-build-state.js";
 import { createLocalN8nModelPlan, createLocalN8nModelComposeFile, createLocalN8nModelAcquisitionDockerfile, createLocalN8nModelDockerignore, getLocalModelDefinition, hasEnabledNoNewPrivileges, LOCAL_N8N_MODEL_ENDPOINT, LOCAL_N8N_MODEL_TARGET, LOCAL_MODEL_RUNTIME_IMAGE } from "../domain/local-n8n-model.js";
 import { parseLocalModelOperationStatus } from "../local-model/acquisition.mjs";
 import { assertLocalModelNetworkEligibility } from "../domain/local-model-network.js";
@@ -22,20 +23,40 @@ const OPERATION_PATTERN = /^[a-f0-9]{32}$/u;
 const parentGuard = `[ -d /docker ] && [ ! -L /docker ] && [ ! -L ${INSTALL_ROOT} ]`;
 const hash = value => createHash("sha256").update(value).digest("hex");
 const fail = () => new Error("The VPS local-model ownership or safety check failed. No unverified resource was changed.");
+// A named setup step that failed on the server gets its own sentence and code. Ownership and
+// attestation mismatches keep the one sentence above. safeMessage survives an appended lock notice.
+const STEP_FAILURES = Object.freeze({
+  vps_step_compose_config: "Docker Compose did not accept the model files on this server. Use Review retry, or remove the model and install it again.",
+  vps_step_build: "The model helper image did not build on this server. Check free disk space and outbound network access, then use Review retry.",
+  vps_step_image_check: "Docker could not show the model helper image after the build. Use Review retry, or remove the model and install it again.",
+  vps_step_start: "The model runtime did not start and become healthy in time. Use Review retry, or remove the model and install it again.",
+});
+const stepFailure = code => Object.assign(new Error(STEP_FAILURES[code]), { safeMessage: STEP_FAILURES[code], code });
 const parse = text => { try { return JSON.parse(text); } catch { throw fail(); } };
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
-async function run(remote, command) {
+async function run(remote, command, step) {
   const result = await remote.exec(command);
-  if (result.code !== 0) throw fail();
+  if (result.code !== 0) throw step ? stepFailure(step) : fail();
   return result.stdout.trim();
+}
+
+// Sets an existing shared folder to mode 0700. Only changeVpsLocalModel calls it, after it
+// checked the owner's final confirmation and re-attested the model under the lock.
+const tightenSharedFolder = remote => run(remote, SHARED_ROOT_TIGHTEN_COMMAND);
+
+// The lock helper tags a build that exited non-zero. Unknown outcomes and lock errors pass through.
+async function buildStep(build, command) {
+  try { await build(command); }
+  catch (error) { throw error?.code === "vps_step_build" ? stepFailure("vps_step_build") : error; }
 }
 
 async function requireSafeDockerParent(remote) {
   const result = await remote.exec("[ -d /docker ] && [ ! -L /docker ] && stat -c %u:%a /docker");
   const metadata = result.code === 0 && /^0:([0-7]{3,4})$/u.exec(result.stdout.trim());
   if (!metadata || (Number.parseInt(metadata[1], 8) & 0o022) !== 0) {
-    throw new Error("Administrator prerequisite: provide an existing root-owned /docker directory that is not a symbolic link or writable by group/others, then review again. Relmio will not create or repair /docker; writes are limited to /docker/n8n-openai-oauth.");
+    throw Object.assign(new Error("The server's Docker deployment folder must already exist, belong to root and not be a symlink or writable by other users. Ask its administrator to check it, then review again."),
+      { code: "vps_prereq_docker_dir" });
   }
 }
 
@@ -306,7 +327,7 @@ function reviewShape(action, marker, selected, modelId, hostResources, clearMode
     temporaryBuildStatePath: action === "remove" ? null : `${LOCK}/buildx`,
     sharedRootBootstrap: action === "install" ? {
       directory: INSTALL_ROOT, markerPath: SHARED_ROOT_MARKER_PATH,
-      mayCreateDirectory: true, mayCreateMarker: true, preservesExistingMode: true,
+      mayCreateDirectory: true, mayCreateMarker: true, directoryMode: "0700",
     } : null,
     endpoint: LOCAL_N8N_MODEL_ENDPOINT, modelId, catalogRevision: domain.catalogRevision,
     approvedModelDigest: domain.approvedModelDigest, runtimeImage: domain.runtimeImage,
@@ -321,7 +342,10 @@ export async function reviewVpsLocalModel({ remote, containerName, networkName, 
   validateDockerName(containerName);
   validateDockerName(networkName);
   if (action === "remove" ? clearModelCache !== true : clearModelCache !== undefined) throw new TypeError("Model-cache deletion requires a separate reviewed confirmation.");
-  if (action === "install") getLocalModelDefinition(modelId);
+  if (action === "install") {
+    getLocalModelDefinition(modelId);
+    requireSupportedVpsCpu(remote.host, "The self-hosted model");
+  }
   const marker = await readMarker(remote);
   if (action === "install" && marker || action !== "install" && !marker) throw new Error("Refresh the model installation before this action.");
   if (marker && (marker.containerName !== containerName || marker.networkName !== networkName ||
@@ -421,9 +445,9 @@ async function recoverRuntimeBootstrap(remote, marker, found, entropy, build) {
     if (marker.helperImageId) throw fail();
     const listed = await run(remote, "docker image ls --format '{{.Repository}}:{{.Tag}}'");
     if (listed.split("\n").includes(name)) throw fail();
-    await build(`${compose(marker)} --profile acquisition build --quiet acquisition`);
+    await buildStep(build, `${compose(marker)} --profile acquisition build --quiet acquisition`);
     inspected = await remote.exec(`docker image inspect ${name} --format '{{json .}}'`);
-    if (inspected.code !== 0) throw fail();
+    if (inspected.code !== 0) throw stepFailure("vps_step_image_check");
   }
   const image = parse(inspected.stdout);
   if (!IMAGE_PATTERN.test(image.Id) ||
@@ -435,21 +459,21 @@ async function recoverRuntimeBootstrap(remote, marker, found, entropy, build) {
   await updateMarker(remote, marker);
   await boundary(remote, marker.containerName, marker.networkName, marker);
   if (!found.container) {
-    await run(remote, `${compose(marker)} up -d --wait --wait-timeout 90 --quiet-pull --no-build --no-deps local-model`);
+    await run(remote, `${compose(marker)} up -d --wait --wait-timeout 90 --quiet-pull --no-build --no-deps local-model`, "vps_step_start");
   } else if (found.container.State?.Running === false) {
     const pinned = await inspectOptional(remote, "container", found.container.Id);
     const named = await inspectOptional(remote, "container", identity(marker).container);
     if (!pinned || !named || pinned.Id !== found.container.Id || named.Id !== pinned.Id ||
         pinned.State?.Running !== false) throw fail();
     attestContainer(pinned, marker, false);
-    await run(remote, `docker start ${validateDockerObjectId(pinned.Id, "model runtime")}`);
+    await run(remote, `docker start ${validateDockerObjectId(pinned.Id, "model runtime")}`, "vps_step_start");
   } else if (found.container.State?.Running !== true) {
     throw fail();
   }
   const running = (await attestResources(remote, marker)).container;
   if (!running || (found.container && running.Id !== found.container.Id) ||
       running.State?.Running !== true || !IMAGE_PATTERN.test(running.Image)) throw fail();
-  await run(remote, `for i in 1 2 3 4 5 6 7 8 9 10; do [ "$(docker inspect ${validateDockerObjectId(running.Id, "model runtime")} --format '{{.State.Health.Status}}')" = healthy ] && exit 0; sleep 3; done; exit 1`);
+  await run(remote, `for i in 1 2 3 4 5 6 7 8 9 10; do [ "$(docker inspect ${validateDockerObjectId(running.Id, "model runtime")} --format '{{.State.Health.Status}}')" = healthy ] && exit 0; sleep 3; done; exit 1`, "vps_step_start");
   marker.runtimeImageId = running.Image;
   await updateMarker(remote, marker);
   return await beginAcquisition(remote, marker, entropy);
@@ -466,9 +490,9 @@ export async function installVpsLocalModel({ remote, plan, confirmed }, { entrop
   if (preflight.containerId !== plan.containerId || preflight.networkId !== plan.networkId) throw fail();
   const precheck = await remote.exec(PRECHECK_COMMAND);
   if (precheck.code !== 0 || !["new", "managed"].includes(precheck.stdout.trim())) throw fail();
-  // Preserve an existing shared parent's mode; only create it if absent.
+  // Creates the shared folder for root only, or sets an existing root-owned one to mode 0700.
   // Root and marker ownership are checked before a child/lock mutation.
-  await run(remote, `${parentGuard} && [ "$(stat -c %u /docker)" = 0 ] && if [ ! -e ${INSTALL_ROOT} ]; then mkdir -m 0755 ${INSTALL_ROOT}; fi && [ -d ${INSTALL_ROOT} ] && [ ! -L ${INSTALL_ROOT} ] && [ "$(stat -c %u ${INSTALL_ROOT})" = 0 ] && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (umask 077; set -C; printf '%s\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi && [ ! -L ${SHARED_ROOT_MARKER_PATH} ] && [ -f ${SHARED_ROOT_MARKER_PATH} ] && [ "$(stat -c %u ${SHARED_ROOT_MARKER_PATH})" = 0 ] && [ "$(cat ${SHARED_ROOT_MARKER_PATH})" = ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} ]`);
+  await run(remote, `${SHARED_ROOT_COMMAND} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (umask 077; set -C; printf '%s\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi && [ ! -L ${SHARED_ROOT_MARKER_PATH} ] && [ -f ${SHARED_ROOT_MARKER_PATH} ] && [ "$(stat -c %u ${SHARED_ROOT_MARKER_PATH})" = 0 ] && [ "$(cat ${SHARED_ROOT_MARKER_PATH})" = ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} ]`);
   return withLock(remote, async build => {
     if (await readMarker(remote)) throw fail();
     const current = await boundary(remote, plan.containerName, plan.networkName);
@@ -500,16 +524,16 @@ export async function installVpsLocalModel({ remote, plan, confirmed }, { entrop
     if (occupied.code === 0) throw fail();
     const imageNames = await run(remote, "docker image ls --format '{{.Repository}}:{{.Tag}}'");
     if (imageNames.split("\n").includes(helperImageName)) throw fail();
-    await run(remote, `${compose(marker)} --profile acquisition config --quiet`);
-    await build(`${compose(marker)} --profile acquisition build --quiet acquisition`);
-    const image = parse(await run(remote, `docker image inspect ${identity(marker).helperImage} --format '{{json .}}'`));
+    await run(remote, `${compose(marker)} --profile acquisition config --quiet`, "vps_step_compose_config");
+    await buildStep(build, `${compose(marker)} --profile acquisition build --quiet acquisition`);
+    const image = parse(await run(remote, `docker image inspect ${identity(marker).helperImage} --format '{{json .}}'`, "vps_step_image_check"));
     if (!IMAGE_PATTERN.test(image.Id) || image.Config?.Labels?.["io.relmio.managed"] !== "true" ||
         image.Config.Labels["io.relmio.install"] !== installId ||
         image.Config.Labels["io.relmio.target"] !== LOCAL_N8N_MODEL_TARGET) throw fail();
     marker.helperImageId = image.Id;
     await updateMarker(remote, marker);
     await boundary(remote, plan.containerName, plan.networkName, marker);
-    await run(remote, `${compose(marker)} up -d --wait --wait-timeout 90 --quiet-pull --no-build --no-deps local-model`);
+    await run(remote, `${compose(marker)} up -d --wait --wait-timeout 90 --quiet-pull --no-build --no-deps local-model`, "vps_step_start");
     const running = (await attestResources(remote, marker)).container;
     if (!running?.State?.Running || running.State?.Health?.Status !== "healthy" || !IMAGE_PATTERN.test(running.Image)) throw fail();
     marker.runtimeImageId = running.Image;
@@ -557,9 +581,11 @@ export async function changeVpsLocalModel({ remote, plan, confirmed }, { entropy
       checkPresentCapacity(marker, await resources(remote, marker.modelId), isCachedRetry(marker, status));
       if (marker.helperImageId && !(await inspectOwnedHelperImage(remote, marker))) throw fail();
       if (status.state === "partial" && marker.operationId === null && !found.operation) {
+        await tightenSharedFolder(remote);
         return await recoverRuntimeBootstrap(remote, marker, found, entropy, build);
       }
       if (!found.container && status.state !== "partial") throw fail();
+      await tightenSharedFolder(remote);
       // Stop the exact attested server, not a mutable container name. A failed
       // acquisition may still be writing when its last status was ambiguous.
       if (found.container?.State?.Running) {
@@ -586,13 +612,14 @@ export async function changeVpsLocalModel({ remote, plan, confirmed }, { entropy
       const named = await inspectOptional(remote, "container", identity(marker).container);
       if (!named || named.Id !== stopped.Id || named.State?.Running !== false) throw fail();
       attestContainer(named, marker, false);
-      await run(remote, `docker start ${validateDockerObjectId(stopped.Id, "model runtime")}`);
+      await run(remote, `docker start ${validateDockerObjectId(stopped.Id, "model runtime")}`, "vps_step_start");
       const running = (await attestResources(remote, marker)).container;
       if (!running || running.Id !== stopped.Id || running.State?.Running !== true) throw fail();
-      await run(remote, `for i in 1 2 3 4 5 6 7 8 9 10; do [ "$(docker inspect ${validateDockerObjectId(stopped.Id, "model runtime")} --format '{{.State.Health.Status}}')" = healthy ] && exit 0; sleep 3; done; exit 1`);
+      await run(remote, `for i in 1 2 3 4 5 6 7 8 9 10; do [ "$(docker inspect ${validateDockerObjectId(stopped.Id, "model runtime")} --format '{{.State.Health.Status}}')" = healthy ] && exit 0; sleep 3; done; exit 1`, "vps_step_start");
       return await beginAcquisition(remote, marker, entropy);
     }
     const helperImage = await inspectOwnedHelperImage(remote, marker);
+    await tightenSharedFolder(remote);
     // Full owned removal explicitly deletes the cached weights. Stop the only model
     // server before deleting its writer and volume; never touch the selected n8n.
     if (found.container) await run(remote, `docker rm -f ${validateDockerObjectId(found.container.Id, "model runtime")}`);
@@ -605,9 +632,18 @@ export async function changeVpsLocalModel({ remote, plan, confirmed }, { entropy
   });
 }
 
-export async function getVpsLocalModelOperationStatus({ remote, installId }) {
-  validateInstallId(installId);
+// One read-only pass for a download poll. A different n8n selection is named before a different
+// installation, in the same order as a status read followed by this check.
+export async function getVpsLocalModelOperationStatus({ remote, installId, containerName, networkName }) {
+  const selected = containerName !== undefined || networkName !== undefined;
+  if (selected) {
+    validateDockerName(containerName);
+    validateDockerName(networkName);
+  }
   const marker = await readMarker(remote);
-  if (!marker || marker.installId !== installId) throw fail();
+  if (selected && marker && (marker.containerName !== containerName || marker.networkName !== networkName)) {
+    throw new Error("This model belongs to another n8n selection.");
+  }
+  if (!marker || marker.installId !== installId) throw new Error("The model operation identity changed. Inspect again.");
   return await inspectInstalled(remote, marker);
 }

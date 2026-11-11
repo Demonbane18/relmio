@@ -21,13 +21,35 @@
 }
 
 /* The dock and chip move instantly so they never trail over page controls;
-   only the pointer glides. */
+   only the pointer glides. At a new spot they fade in: guide-dock.js flips
+   data-arrive between a and b, and the two equal keyframes restart the fade
+   without a layout read. Opacity only, so no measured box shifts. */
 .rm-guide,
 .rm-guide-chip {
   z-index: 35;
   border: 1px solid var(--rm-line-strong);
   background: var(--rm-surface);
   color: var(--rm-ink);
+}
+
+:is(.rm-guide, .rm-guide-chip)[data-arrive="a"] {
+  animation: rm-guide-arrive-a var(--rm-duration-fast) var(--rm-ease);
+}
+
+:is(.rm-guide, .rm-guide-chip)[data-arrive="b"] {
+  animation: rm-guide-arrive-b var(--rm-duration-fast) var(--rm-ease);
+}
+
+@keyframes rm-guide-arrive-a {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rm-guide-arrive-b {
+  from {
+    opacity: 0;
+  }
 }
 
 /* Dock ------------------------------------------------------------------- */
@@ -148,6 +170,19 @@
   mask: var(--rm-icon-check) center / 0.625rem no-repeat;
 }
 
+/* A dot that turns done while the guide runs draws its check once;
+   guide-dock.js removes is-new when the animation ends. */
+.rm-guide__dots > .is-new::after {
+  animation: rm-guide-check var(--rm-duration) var(--rm-ease);
+}
+
+@keyframes rm-guide-check {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
 .rm-guide__live {
   display: grid;
   gap: var(--rm-space-1);
@@ -183,10 +218,13 @@
 
 /* Mascot chip ------------------------------------------------------------- */
 
+/* While the walkthrough is on, the chip is the folded guide and carries the
+   current tip's title; a long title is cut with an ellipsis. */
 .rm-guide-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--rm-space-2);
+  max-width: min(20rem, calc(100vw - 1rem));
   min-height: 2.75rem;
   padding: var(--rm-space-1) var(--rm-space-4) var(--rm-space-1) var(--rm-space-2);
   border-radius: var(--rm-radius-pill);
@@ -196,11 +234,18 @@
   white-space: nowrap;
 }
 
+.rm-guide-chip > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rm-guide-chip:hover {
   background: var(--rm-surface-muted);
 }
 
 .rm-guide-chip__mascot {
+  flex: none;
   width: 1.75rem;
 }
 
@@ -265,10 +310,12 @@
   transition: transform var(--rm-duration-slow) var(--rm-ease);
 }
 
+/* The halo is see-through, so a line of text next to the target stays
+   readable under it. */
 .rm-guide-pointer__ring {
   border: 2px solid var(--rm-accent);
   border-radius: var(--rm-radius-md);
-  box-shadow: 0 0 0 4px var(--rm-accent-soft);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--rm-accent) 25%, transparent);
 }
 
 .rm-guide-pointer__ring::after {
@@ -308,6 +355,17 @@
   translate: -100% 0;
 }
 
+/* Raised: the cursor points down at the target's top edge and the label sits
+   above it, for a target with text or controls right under it. */
+.rm-guide-pointer__cursor.is-raised {
+  align-items: flex-end;
+  translate: 0 -100%;
+}
+
+.rm-guide-pointer__cursor.is-flipped.is-raised {
+  translate: -100% -100%;
+}
+
 .rm-guide-pointer__arrow {
   flex: none;
   width: 1.125rem;
@@ -318,6 +376,14 @@
 
 .rm-guide-pointer__cursor.is-flipped .rm-guide-pointer__arrow {
   transform: scaleX(-1);
+}
+
+.rm-guide-pointer__cursor.is-raised .rm-guide-pointer__arrow {
+  transform: scaleY(-1);
+}
+
+.rm-guide-pointer__cursor.is-flipped.is-raised .rm-guide-pointer__arrow {
+  transform: scale(-1);
 }
 
 .rm-guide-pointer__label,
@@ -333,6 +399,11 @@
   border-radius: var(--rm-radius-pill);
   font-size: var(--rm-text-xs);
   white-space: nowrap;
+}
+
+.rm-guide-pointer__cursor.is-raised .rm-guide-pointer__label {
+  margin-top: 0;
+  margin-bottom: 1rem;
 }
 
 /* The label keeps its size while left out, so the cursor stays measurable. */
@@ -435,7 +506,7 @@
 }
 
 .rm-mascot[data-pose="happy"] .rm-mascot__figure {
-  animation: rm-mascot-hop 520ms var(--rm-ease) 1;
+  animation: rm-mascot-hop var(--rm-duration-slow) var(--rm-ease) 1;
 }
 
 @keyframes rm-mascot-hop {

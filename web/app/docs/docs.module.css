@@ -250,6 +250,23 @@
   font-size: var(--rm-text-sm);
 }
 
+/* Matching sections under the guide list: the heading, then its guide. */
+.sectionResults {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: var(--rm-space-3);
+}
+
+.guideNav .sectionLink {
+  display: grid;
+  gap: 0;
+}
+
+.sectionGuide {
+  color: var(--rm-ink-subtle);
+  font-size: var(--rm-text-xs);
+}
+
 /* Docs index: guide cards. */
 .index {
   display: grid;
@@ -407,13 +424,18 @@
     display: none;
   }
 
+  /* Search results can make the sidebar taller than the window; it then
+     scrolls on its own. The inline padding keeps focus rings inside it. */
   .sidebar {
     position: sticky;
     top: var(--rm-topbar-height);
     display: flex;
     align-self: start;
     gap: var(--rm-space-3);
-    padding-block: var(--rm-space-4);
+    max-height: calc(100dvh - var(--rm-topbar-height));
+    margin-inline: calc(-1 * var(--rm-space-2));
+    padding: var(--rm-space-4) var(--rm-space-2);
+    overflow-y: auto;
   }
 
   .pane {
@@ -432,6 +454,8 @@
 @media (min-width: 64rem) and (max-height: 40rem) {
   .sidebar {
     position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 

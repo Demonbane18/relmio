@@ -6,7 +6,7 @@ import { getLocalDashboardStatus } from "../src/services/local-dashboard.js";
 
 const snapshot = { target: "n8n-claude-oauth", endpoint: "http://relmio-claude:14502/v1",
   auth: { configured: true, disclosure: "one-time" }, models: ["claude-sonnet-5-5"],
-  expiresAt: "2026-11-10T00:00:00.000Z", approvalExpired: false, canRemove: true };
+  expiresAt: "2026-11-10T00:00:00.000Z", approvalExpired: false, canRemove: true, runtime: "running" };
 const absent = async () => ({ managed: false, state: "absent" });
 
 test("Claude service and provider definitions agree across server, inventory and browser", async () => {
@@ -36,8 +36,16 @@ test("Claude browser snapshot rejects extra secret keys and invalid approval/mod
     dashboardContractError() { return new Error("contract"); },
   });
   assert.equal(normalize(snapshot).endpoint, snapshot.endpoint);
-  for (const extra of [{ token: "secret" }, { models: ["claude-fable"] }, { approvalExpired: "false" }, { expiresAt: "invalid" }]) {
+  for (const extra of [{ token: "secret" }, { models: ["claude-fable"] }, { approvalExpired: "false" }, { expiresAt: "invalid" },
+    { runtime: "paused" }, { runtime: "Running" }, { runtime: null }]) {
     assert.throws(() => normalize({ ...snapshot, ...extra }));
+  }
+  // The runtime decides whether the dashboard may call the companion healthy, so it is required.
+  const withoutRuntime = { ...snapshot };
+  delete withoutRuntime.runtime;
+  assert.throws(() => normalize(withoutRuntime));
+  for (const runtime of ["running", "starting", "restarting", "unhealthy", "stopped"]) {
+    assert.equal(normalize({ ...snapshot, runtime }).runtime, runtime);
   }
   const html = await readFile("src/ui/local.html", "utf8");
   const reviews = html.match(/<input[^>]+data-claude-review="[^"]+"[^>]*>/gu);

@@ -6,6 +6,9 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
+import { describeVpsNetworkSupport } from "../src/domain/vps-network.js";
+import { createVerificationCommands } from "../src/domain/safety.js";
+import { getVpsSiwcInstallationStatus, reviewVpsSiwcTarget } from "../src/services/installer.js";
 import { startIsolatedWizard as startWizardServer, siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
 
 const sessionToken = "test-session-token-that-is-long-enough-123456";
@@ -4101,4 +4104,116 @@ test("local-model-only SSH sessions cannot reach VPS image or model routes", asy
     assert.match((await response.json()).error, /local-model-only/u);
   }
   assert.equal(calls, 0);
+});
+
+test("bridge plan refuses an unsupported network while status still permits recovery", async t => {
+  const { services, remote } = createServices();
+  const commands = [];
+  const verification = createVerificationCommands();
+  let internal = true;
+  remote.exec = async command => {
+    commands.push(command);
+    if (command === "docker network inspect --format '{{json .}}' proxy") {
+      return { code: 0, stdout: JSON.stringify({ Id: "b".repeat(64), Name: "proxy", Driver: "bridge", Internal: internal }) };
+    }
+    if (command === "docker inspect --format '{{json .}}' n8n-n8n-1") return {
+      code: 0, stdout: JSON.stringify({ Id: "a".repeat(64), Name: "/n8n-n8n-1",
+        State: { Running: true }, NetworkSettings: { Networks: { proxy: { NetworkID: "b".repeat(64) } } } }),
+    };
+    if (command === verification.staging) return { code: 0, stdout: "null" };
+    if (command === verification.legacyStatus) return { code: 0, stdout: "absent" };
+    throw new Error("Unexpected remote call");
+  };
+  services.reviewVpsSiwcTarget = reviewVpsSiwcTarget;
+  services.getVpsSiwcInstallationStatus = getVpsSiwcInstallationStatus;
+  const wizard = await startWizardServer({ sessionToken, services, uiFiles: { "/": "fixture" } });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const post = path => api(wizard.origin, path, { method: "POST", headers: setup.originHeader,
+    body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy" }) });
+  const refused = await post("/api/plan");
+  assert.equal(refused.status, 400);
+  const failure = await refused.json();
+  assert.equal(failure.code, "vps_network_unsupported");
+  assert.equal(failure.error, describeVpsNetworkSupport({ Internal: true }).message);
+  commands.length = 0;
+  assert.equal((await post("/api/siwc/vps/status")).status, 200);
+  // One target inspection pair, one staging read and one state read. Before: 6 commands.
+  assert.equal(commands.length, 4);
+  assert.equal(new Set(commands).size, commands.length);
+  internal = false;
+  commands.length = 0;
+  assert.equal((await post("/api/plan")).status, 200);
+  assert.equal(commands.length, 4);
+});
+
+test("Assistant plan warns only for the selected n8n sandbox without refusing or reading remotely", async t => {
+  const { services, remote } = createServices();
+  const discover = services.discoverN8n;
+  let present;
+  services.discoverN8n = async () => {
+    const result = await discover();
+    result.containers[0].n8nSandboxPresent = present;
+    result.containers.push({ name: "another-n8n", image: "n8nio/n8n", id: "def", state: "running", n8nSandboxPresent: true });
+    return result;
+  };
+  let calls = 0;
+  remote.exec = async () => { calls++; throw new Error("Assistant plan must use cached discovery"); };
+  const wizard = await startWizardServer({ sessionToken, services, uiFiles: { "/": "fixture" } });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const post = (path, body = {}) => api(wizard.origin, path, { method: "POST", headers: setup.originHeader, body: JSON.stringify(body) });
+  for (const value of [undefined, false, true]) {
+    present = value;
+    await post("/api/discover");
+    await post("/api/networks", { containerName: "n8n-n8n-1" });
+    const response = await post("/api/assistant/plan", { containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: false });
+    assert.equal(response.status, 200);
+    const plan = await response.json();
+    assert.equal(plan.warnings.length, value === true ? 1 : 0);
+    if (value === true) assert.match(plan.warnings[0], /already runs its own sandbox.*second privileged runner/u);
+    assert.equal(plan.privilegedRunner, true);
+  }
+  assert.equal(calls, 0);
+});
+
+test("Assistant checks network support at review and again before install, with outbound needed only for SearXNG", async t => {
+  const { services } = createServices();
+  let network = { Name: "proxy", Driver: "bridge", Internal: false };
+  let installed = 0;
+  services.discoverNetworks = async () => ({ networks: ["proxy"], recommended: "proxy", instanceAi: { status: "enabled" },
+    support: { proxy: describeVpsNetworkSupport(network) } });
+  services.installAssistant = async ({ includeSearxng }) => {
+    installed++;
+    return createAssistantInstallResult({ includeSearxng });
+  };
+  const wizard = await startWizardServer({ sessionToken, services, uiFiles: { "/": "fixture" } });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const post = (path, body) => api(wizard.origin, path, { method: "POST", headers: setup.originHeader, body: JSON.stringify(body) });
+  const selection = { containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: false };
+  const plan = () => post("/api/assistant/plan", selection);
+  for (const unsupported of [{ Driver: "host" }, { Driver: "null" }, { Options: { "com.docker.network.bridge.default_bridge": "true" } }]) {
+    network = { Name: "proxy", ...unsupported };
+    await post("/api/networks", { containerName: selection.containerName });
+    const refused = await plan();
+    assert.equal(refused.status, 400);
+    assert.equal((await refused.json()).code, "vps_network_unsupported");
+  }
+  network = { Name: "proxy", Driver: "bridge", Internal: true };
+  await post("/api/networks", { containerName: selection.containerName });
+  assert.equal((await plan()).status, 200);
+  const refused = await post("/api/assistant/plan", { ...selection, includeSearxng: true });
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).code, "vps_network_unsupported");
+  network = { Name: "proxy", Driver: "overlay", Internal: false };
+  await post("/api/networks", { containerName: selection.containerName });
+  const approved = await plan();
+  assert.equal(approved.status, 200);
+  const { planId } = await approved.json();
+  network = { Name: "proxy", Driver: "host" };
+  const changed = await post("/api/assistant/install", { ...selection, planId, confirmed: true });
+  assert.equal(changed.status, 400);
+  assert.equal((await changed.json()).code, "vps_network_unsupported");
+  assert.equal(installed, 0);
 });

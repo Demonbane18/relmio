@@ -7,10 +7,23 @@ import {
 } from "./chat-tester-feedback.js";
 import { initWizardTopbar } from "./topbar.js";
 import { createDeviceCodeControls } from "./device-code.js";
+import { formatLocalDateTime } from "./time.js";
 
-const CLAUDE_LOCAL_NOTICE = "Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.";
-const CLAUDE_N8N_SETTINGS = "Basic LLM Chain + OpenAI Chat Model; Use Responses API off; Max Retries 0; Timeout at least 135000 ms; Batch Size 1. Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant. Renew approval within 7 days.";
 const CLAUDE_REVIEW_KEYS = ["officialBinaryReviewed", "effectivePolicyReviewed", "nativeAuthAndBillingReviewed", "policyChangesControlled"];
+// Docker reports "starting" for about a minute after every install, renewal or Docker
+// restart, so it reads as a calm state. Only a companion that keeps stopping gets advice.
+const CLAUDE_RUNTIME_TEXT = Object.freeze({
+  running: "Running.",
+  starting: "Starting. The first check takes about a minute.",
+  restarting: "Restarting. The companion keeps stopping.",
+  unhealthy: "Unhealthy. The companion fails its health check.",
+  stopped: "Stopped. The companion container is not running.",
+});
+// The logs tell an account lock from other causes. A reinstall keeps the login volume and
+// any lock in it, so the advice is the documented recovery, never a reinstall.
+const CLAUDE_NOT_RUNNING_ADVICE =
+  "Check its logs with docker logs relmio-claude. If they show account_locked, follow the account-lock recovery guide in the docs only after everything that uses this Claude account has stopped.";
+const claudeKeepsStopping = (runtime) => runtime === "restarting" || runtime === "unhealthy";
 
 const token = readWizardSession();
 
@@ -26,6 +39,8 @@ const state = {
   installedStack: null,
   stackAddonPrefill: null,
   installedTarget: null,
+  installUnconfirmed: false,
+  managing: false,
   operationBusy: false,
   operationButton: null,
   operationControlObserver: null,
@@ -175,10 +190,20 @@ function setMessage(text) {
   messageBox.hidden = false;
 }
 
+// The status line stays in the page as a live region. An empty one takes no room.
+function clearMessage() {
+  messageText.textContent = "";
+}
+
 // Rejected fields point at the visible error through aria-describedby and
 // lose that link, and aria-invalid, whenever the error is cleared or replaced.
 const LOCAL_PORT_REJECTION =
   /^(?:Port is invalid\.|Local endpoint port must|The selected local endpoint port)/u;
+
+// True when a failure names a setting the person has to change.
+function namesRejectedField(error) {
+  return typeof error?.param === "string" || LOCAL_PORT_REJECTION.test(error?.message ?? "");
+}
 
 function clearFieldErrors() {
   for (const field of document.querySelectorAll('[aria-describedby~="global-error-text"]')) {
@@ -219,17 +244,16 @@ function stackUsesNgrok() {
 
 function updateStackPublicAccess() {
   const enabled = isN8nStack(state.target) && stackUsesNgrok();
-  for (const id of ["ngrok-hostname-field", "ngrok-inspector-field", "ngrok-checklist"]) {
+  for (const id of ["ngrok-hostname-field", "ngrok-checklist"]) {
     element(id).hidden = !enabled;
   }
-  for (const id of ["ngrok-hostname", "ngrok-inspector-port"]) {
-    element(id).disabled = !enabled;
-    element(id).required = enabled;
-    if (!enabled) element(id).setCustomValidity("");
-  }
+  const hostname = element("ngrok-hostname");
+  hostname.disabled = !enabled;
+  hostname.required = enabled;
+  if (!enabled) hostname.setCustomValidity("");
   element("boundary-title").textContent = enabled ? "This computer, plus a public link" : "This computer only";
   element("boundary-detail").textContent = enabled
-    ? "n8n and the ngrok inspector stay on this computer. The public ngrok link requires Basic Auth."
+    ? "n8n stays on this computer. The public ngrok link requires Basic Auth."
     : "n8n stays on this computer. No public URL is created.";
   invalidatePlan();
 }
@@ -610,13 +634,17 @@ if (typeof document !== "undefined") {
   }
 }
 
-function showStep(step, { showSetupProgress = true } = {}) {
+function showStep(step, { showSetupProgress = !(state.managing && step === 4), installed = false } = {}) {
+  // Management views open on the Ready panel. Any other step starts or continues a setup.
+  if (step !== 4) state.managing = false;
   state.step = step;
   document.body.dataset.currentStep = String(step);
+  element("page-title").textContent = state.managing ? "Manage a connection" : "Add a local connection";
   element("setup-progress").hidden = !showSetupProgress;
   element("done-step-caption").hidden = !showSetupProgress;
-  element("success-mark").hidden = !showSetupProgress ||
-    (step === 4 && state.installedTarget === "n8n-local-model" && !state.localModelReady);
+  // The success mark confirms an install that just finished, never a management or recovery view.
+  element("success-mark").hidden = !installed ||
+    (state.installedTarget === "n8n-local-model" && !state.localModelReady);
 
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
@@ -891,7 +919,6 @@ function normalizeStackDashboardSnapshot(snapshot) {
   assertDashboardKeys(snapshot.endpoints, [
     "n8nLocal",
     "ngrokPublic",
-    "ngrokInspector",
   ]);
   if (
     snapshot.target !== "local-n8n-stack" ||
@@ -905,11 +932,9 @@ function normalizeStackDashboardSnapshot(snapshot) {
     (snapshot.ngrokPublicUrl !== undefined && snapshot.ngrokPublicUrl !== null &&
       normalizeDashboardPublicUrl(snapshot.ngrokPublicUrl) !== snapshot.ngrokPublicUrl) ||
     (snapshot.publicAccess === "none" &&
-      (snapshot.ngrokPublicUrl !== null || snapshot.endpoints.ngrokPublic !== null ||
-        snapshot.endpoints.ngrokInspector !== null)) ||
+      (snapshot.ngrokPublicUrl !== null || snapshot.endpoints.ngrokPublic !== null)) ||
     (snapshot.publicAccess === "ngrok" &&
-      (typeof snapshot.ngrokPublicUrl !== "string" || snapshot.endpoints.ngrokPublic === null ||
-        snapshot.endpoints.ngrokInspector === null))
+      (typeof snapshot.ngrokPublicUrl !== "string" || snapshot.endpoints.ngrokPublic === null))
   ) {
     throw dashboardContractError();
   }
@@ -928,8 +953,6 @@ function normalizeStackDashboardSnapshot(snapshot) {
         : normalizeDashboardEndpoint(snapshot.endpoints.n8nLocal, "codex-chat"),
       ngrokPublic: snapshot.endpoints.ngrokPublic === null ? null
         : normalizeDashboardPublicUrl(snapshot.endpoints.ngrokPublic),
-      ngrokInspector: snapshot.endpoints.ngrokInspector === null ? null
-        : normalizeDashboardEndpoint(snapshot.endpoints.ngrokInspector, "codex-chat"),
     },
     components: normalizeDashboardBooleans(snapshot.components, [
       "n8n",
@@ -1028,7 +1051,7 @@ function normalizeLocalModelDashboardSnapshot(snapshot) {
 }
 
 function normalizeN8nClaudeDashboardSnapshot(snapshot) {
-  assertDashboardKeys(snapshot, ["target", "endpoint", "auth", "canRemove", "models", "expiresAt", "approvalExpired"]);
+  assertDashboardKeys(snapshot, ["target", "endpoint", "auth", "canRemove", "models", "expiresAt", "approvalExpired", "runtime"]);
   assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
   if (snapshot.target !== "n8n-claude-oauth" || snapshot.endpoint !== "http://relmio-claude:14502/v1" ||
       snapshot.auth.configured !== true || snapshot.auth.disclosure !== "one-time" || snapshot.canRemove !== true ||
@@ -1037,7 +1060,8 @@ function normalizeN8nClaudeDashboardSnapshot(snapshot) {
         typeof model !== "string" || model.length > 128 || !/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(model) || model.includes("fable")) ||
       typeof snapshot.expiresAt !== "string" || !Number.isFinite(Date.parse(snapshot.expiresAt)) ||
       new Date(snapshot.expiresAt).toISOString() !== snapshot.expiresAt ||
-      typeof snapshot.approvalExpired !== "boolean") throw dashboardContractError();
+      typeof snapshot.approvalExpired !== "boolean" ||
+      !["running", "starting", "restarting", "unhealthy", "stopped"].includes(snapshot.runtime)) throw dashboardContractError();
   return { ...snapshot, models: [...snapshot.models], auth: { configured: true, disclosure: "one-time" } };
 }
 
@@ -1259,6 +1283,7 @@ function dashboardStateLabel(serviceState) {
   return {
     checking: "Checking",
     healthy: "Healthy",
+    starting: "Starting",
     stopped: "Stopped",
     staged: "Staged; review resume",
     partial: "Needs recovery",
@@ -1266,6 +1291,24 @@ function dashboardStateLabel(serviceState) {
     stale: "Stale",
     absent: "Not configured",
   }[serviceState] ?? "Unavailable";
+}
+
+// The dot, badge and word a service shows. The server reports a Claude companion that is
+// not running, or whose approval lapsed, as "partial". The page names the real reason and
+// never shows such a companion as healthy. "Starting" is a calm state: Docker reports it
+// for about a minute after every install, renewal or Docker restart.
+function dashboardServiceStatus(service) {
+  const claude = service.kind === "n8n-claude" ? service.snapshot : null;
+  if (!claude || (service.state === "healthy" && claude.runtime === "running" && !claude.approvalExpired)) {
+    return { tone: service.state, label: dashboardStateLabel(service.state) };
+  }
+  if (claude.runtime !== "running") {
+    return {
+      tone: claude.runtime === "starting" && !claude.approvalExpired ? "starting" : "partial",
+      label: `${claude.runtime[0].toUpperCase()}${claude.runtime.slice(1)}`,
+    };
+  }
+  return { tone: "partial", label: claude.approvalExpired ? "Approval expired" : dashboardStateLabel("partial") };
 }
 
 function dashboardBoundary(service) {
@@ -1278,6 +1321,13 @@ function dashboardServiceDescription(service) {
   if (service.state === "absent") return "Choose a connection to install.";
   if (service.state === "unavailable") {
     return "Ownership could not be verified. No maintenance actions are available.";
+  }
+  if (service.kind === "n8n-claude" && service.snapshot) {
+    if (service.snapshot.runtime !== "running") {
+      const runtime = service.snapshot.runtime;
+      return claudeKeepsStopping(runtime) ? `${CLAUDE_RUNTIME_TEXT[runtime]} ${CLAUDE_NOT_RUNNING_ADVICE}` : CLAUDE_RUNTIME_TEXT[runtime];
+    }
+    if (service.snapshot.approvalExpired) return "The approval has expired. Renew it before use.";
   }
   if (service.state === "stopped") return "Owned service is present but stopped.";
   if (service.state === "partial") {
@@ -1301,10 +1351,10 @@ function dashboardServiceDescription(service) {
   return "Owned service passed the latest local inventory check.";
 }
 
-function dashboardStateNode(serviceState, className = "dashboard-state-token") {
+function dashboardStateNode(serviceState, className = "dashboard-state-token", label = dashboardStateLabel(serviceState)) {
   const node = document.createElement("span");
   node.className = `rm-badge ${className} state-${serviceState}`;
-  node.textContent = dashboardStateLabel(serviceState);
+  node.textContent = label;
   return node;
 }
 
@@ -1315,11 +1365,12 @@ function dashboardStatusDot(serviceState) {
   return dot;
 }
 
-function formatDashboardTime(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+// A date for people: the short local form, with the exact instant kept in the datetime attribute.
+function localTime(iso) {
+  const time = document.createElement("time");
+  time.dateTime = iso;
+  time.textContent = formatLocalDateTime(iso);
+  return time;
 }
 
 function isDashboardSnapshotStale(snapshot) {
@@ -1445,6 +1496,9 @@ function appendDashboardFact(
       }
     });
     detail.append(displayedValue, button);
+  } else if (Array.isArray(value)) {
+    // Text with a <time> inside, such as an approval date.
+    detail.append(...value);
   } else {
     detail.textContent = value;
   }
@@ -1480,8 +1534,7 @@ function resetDashboardActionReview() {
   element("n8n-sidecar-removal").hidden = true;
   element("n8n-supergrok-removal").hidden = true;
   element("n8n-claude-management").hidden = true;
-  element("claude-client-key").textContent = "";
-  element("claude-one-time-key").hidden = true;
+  setClaudeOneTimeKey("");
   element("n8n-assistant-removal").hidden = true;
   element("n8n-local-model-management").hidden = true;
   invalidateLocalModelReview();
@@ -1684,8 +1737,14 @@ async function runDashboardAction(service, action) {
     resetDashboardActionReview();
     state.installedTarget = service.target;
     renderClaudeManagement(service.snapshot);
-    element("done-title").textContent = "Manage Claude for n8n";
-    element("done-detail").textContent = "Sign in in your terminal, check sign-in here, or review a separate approval change.";
+    // "Review removal" shows only what removal needs, so the review fits one screen.
+    const removing = action === "remove";
+    if (removing) showClaudeView("removal");
+    element("done-provider-context").textContent = "Claude · Experimental · private n8n companion";
+    element("done-title").textContent = removing ? "Review Claude for n8n removal" : "Manage Claude for n8n";
+    element("done-detail").textContent = removing
+      ? "Nothing has changed. Choose whether to keep your Claude sign-in, then confirm separately."
+      : "Sign in in your terminal, check sign-in here, or review a separate approval change.";
     showStep(4);
     return;
   }
@@ -1785,19 +1844,20 @@ function dashboardProviderAuthentication(provider) {
 function renderDashboardRelayPath(service, provider = dashboardProviderForTarget(service.target)) {
   const relay = element("dashboard-relay");
   relay.replaceChildren();
-  const runtimeState = service.state === "healthy" ? "healthy" : service.state;
+  const status = dashboardServiceStatus(service);
   const nodes = [
     {
       label: service.kind === "n8n-local-model" ? "n8n setup" : "Local app",
-      state: service.kind === "n8n-local-model" ? "stopped" : service.state,
+      state: service.kind === "n8n-local-model" ? "stopped" : status.tone,
       detail: service.kind === "n8n-local-model"
         ? "Configure and test in n8n separately"
-        : service.state === "healthy" ? "Local capability configured" : dashboardStateLabel(service.state),
+        : status.tone === "healthy" ? "Local capability configured" : status.label,
     },
     {
       label: "Relmio runtime",
-      state: runtimeState,
-      detail: runtimeState === "healthy" ? "Runtime reachable" : dashboardStateLabel(runtimeState),
+      state: status.tone,
+      // "Runtime reachable" is claimed only for a service the inventory found healthy.
+      detail: status.tone === "healthy" ? "Runtime reachable" : status.label,
     },
     {
       label: service.kind === "n8n-local-model" ? "Model inference" : "Provider / integration",
@@ -1892,13 +1952,6 @@ function renderDashboardServiceDetail(
         fact: "n8n-public",
       });
     }
-    if (service.snapshot.endpoints.ngrokInspector !== null) {
-      appendDashboardFact(facts, "Inspector", service.snapshot.endpoints.ngrokInspector, {
-        copyLabel: "ngrok inspector URL",
-        service: service.target,
-        fact: "ngrok-inspector",
-      });
-    }
     appendDashboardFact(facts, "Components", dashboardComponentSummary(service.snapshot.components));
     appendDashboardFact(facts, "Assistant mode", assistantModeLabel(service.snapshot.assistantMode));
   }
@@ -1914,6 +1967,13 @@ function renderDashboardServiceDetail(
   }
   if (service.kind === "n8n-supergrok" && service.snapshot) {
     appendDashboardFact(facts, "Client bearer", "Configured; shown only at creation");
+  }
+  if (service.kind === "n8n-claude" && service.snapshot) {
+    const { runtime, approvalExpired, expiresAt } = service.snapshot;
+    appendDashboardFact(facts, "Runtime", `${runtime[0].toUpperCase()}${runtime.slice(1)}`);
+    appendDashboardFact(facts, "Approval", approvalExpired
+      ? ["Expired ", localTime(expiresAt), ". Renew before use."]
+      : ["Expires ", localTime(expiresAt)]);
   }
   renderDashboardRelayPath(service, provider);
   const actions = element("dashboard-service-actions");
@@ -1944,8 +2004,10 @@ function createDashboardOpenN8nLink(service) {
 }
 
 function renderDashboardServiceRow(service, { selected, stale }) {
+  const status = dashboardServiceStatus(service);
   const item = document.createElement("li");
-  item.className = "dashboard-service-row";
+  // Connections that are not installed take one line, so the whole list fits one screen.
+  item.className = `dashboard-service-row${service.managed ? "" : " dashboard-service-row--compact"} rm-fade-in`;
   const select = document.createElement("button");
   select.type = "button";
   select.className = "dashboard-service-select";
@@ -1953,15 +2015,27 @@ function renderDashboardServiceRow(service, { selected, stale }) {
   select.dataset.dashboardControl = "select";
   select.setAttribute("aria-pressed", String(selected));
   select.setAttribute("aria-controls", "dashboard-service-detail");
-  select.append(dashboardStatusDot(service.state));
+  select.append(dashboardStatusDot(status.tone));
   const copy = document.createElement("span");
   copy.className = "dashboard-service-copy";
-  // The row names the service, its state and boundary in full; the selected
-  // connection card holds the longer description.
+  // An installed row names the service, its state and boundary. A Claude row shows its
+  // approval instead. The selected connection card holds the longer description.
   const title = document.createElement("strong");
   title.textContent = service.label;
   const detail = document.createElement("small");
-  detail.textContent = `${dashboardStateLabel(service.state)} · ${dashboardBoundary(service)}`;
+  if (service.kind === "n8n-claude" && service.snapshot) {
+    const { approvalExpired, expiresAt } = service.snapshot;
+    detail.append(
+      ...(status.label === "Approval expired" ? [] : [`${status.label} · `]),
+      ...(approvalExpired
+        ? ["Approval expired ", localTime(expiresAt), ". Renew before use."]
+        : ["Expires ", localTime(expiresAt)]),
+    );
+  } else {
+    detail.textContent = service.managed
+      ? `${status.label} · ${dashboardBoundary(service)}`
+      : status.label;
+  }
   copy.append(title, detail);
   select.append(copy);
   select.addEventListener("click", () => {
@@ -1974,7 +2048,9 @@ function renderDashboardServiceRow(service, { selected, stale }) {
   item.append(select);
   const rowActions = document.createElement("div");
   rowActions.className = "dashboard-service-row-actions";
-  const primaryAction = service.actions.find((action) => action !== "remove");
+  // A connection that is not installed has its Set up action in the selected connection
+  // card, so its row stays one line and the whole list fits one screen.
+  const primaryAction = service.managed ? service.actions.find((action) => action !== "remove") : undefined;
   const actionButton = primaryAction
     ? renderDashboardAction(service, primaryAction, { compact: true, disabled: stale })
     : null;
@@ -1986,8 +2062,9 @@ function renderDashboardServiceRow(service, { selected, stale }) {
 }
 
 function renderDashboardCompactService(service) {
+  const status = dashboardServiceStatus(service);
   const item = document.createElement("li");
-  item.append(dashboardStatusDot(service.state));
+  item.append(dashboardStatusDot(status.tone));
   const copy = document.createElement("span");
   const title = document.createElement("strong");
   const detail = document.createElement("small");
@@ -1996,7 +2073,7 @@ function renderDashboardCompactService(service) {
   copy.append(title, detail);
   const open = createDashboardOpenN8nLink(service);
   if (open) copy.append(open);
-  item.append(copy, dashboardStateNode(service.state));
+  item.append(copy, dashboardStateNode(status.tone, "dashboard-state-token", status.label));
   return item;
 }
 
@@ -2019,7 +2096,8 @@ function renderDashboardChecking() {
   state.dashboardBusy = true;
   state.dashboardSnapshotStale = true;
   document.body.dataset.dashboardBusy = "true";
-  element("dashboard-refresh").disabled = true;
+  // The refresh button keeps focus while the check runs; its handler ignores a second press.
+  element("dashboard-refresh").setAttribute("aria-busy", "true");
   element("dashboard-services").setAttribute("aria-busy", "true");
   for (const control of document.querySelectorAll(
     "[data-dashboard-action], .dashboard-service-select",
@@ -2038,7 +2116,8 @@ function renderDashboardChecking() {
     "rm-badge dashboard-state-token state-checking";
   element("dashboard-environment-state").textContent = "Checking";
   renderDashboardTruth("dashboard-runtime-health", "Checking", "checking");
-  renderDashboardTruth("dashboard-provider-readiness", "Checking", "checking");
+  element("dashboard-installed").textContent = "Checking";
+  element("dashboard-installed-names").textContent = "Connections";
   renderDashboardTruth("dashboard-inventory-freshness", "Checking", "checking");
   element("dashboard-last-checked").textContent = "Checking now";
 }
@@ -2052,36 +2131,39 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
   state.dashboardBusy = false;
   document.body.dataset.dashboardBusy = "false";
   document.body.dataset.dashboardStale = String(stale);
-  element("dashboard-refresh").disabled = false;
+  element("dashboard-refresh").setAttribute("aria-busy", "false");
   element("dashboard-services").setAttribute("aria-busy", "false");
-  const attentionStates = new Set(["stopped", "partial", "unavailable"]);
-  const healthy = snapshot.services.filter(({ state: serviceState }) => serviceState === "healthy").length;
-  const attention = snapshot.services.filter(({ state: serviceState }) => attentionStates.has(serviceState)).length;
-  const absent = snapshot.services.filter(({ state: serviceState }) => serviceState === "absent").length;
-  const providerState = "absent";
+  const tones = snapshot.services.map((service) => dashboardServiceStatus(service).tone);
+  const healthy = tones.filter((tone) => tone === "healthy").length;
+  const attention = tones.filter((tone) => ["stopped", "partial", "unavailable"].includes(tone)).length;
+  const absent = tones.filter((tone) => tone === "absent").length;
+  const installed = snapshot.services.filter(({ managed }) => managed);
   const runtimeState = snapshot.previewMode === true || !snapshot.docker.available
       ? "unavailable"
       : attention > 0
         ? "partial"
-        : "healthy";
+        : tones.includes("starting") ? "starting" : "healthy";
   renderDashboardTruth(
     "dashboard-runtime-health",
     runtimeState === "healthy" ? "Healthy" : dashboardStateLabel(runtimeState),
     runtimeState,
   );
-  renderDashboardTruth(
-    "dashboard-provider-readiness",
-    "Provider-managed · not inspected",
-    providerState,
-  );
+  // The Overview names what is installed and links to its list.
+  element("dashboard-installed").textContent = installed.length === 0
+    ? "No connections installed"
+    : `${installed.length} ${installed.length === 1 ? "connection" : "connections"} installed`;
+  element("dashboard-installed-names").textContent = installed.length === 0
+    ? "Connections"
+    : installed.map(({ label }) => label).join(", ");
   renderDashboardTruth(
     "dashboard-inventory-freshness",
     stale ? "Refresh needed" : "Current",
     stale ? "stale" : "healthy",
   );
-  element("dashboard-last-checked").textContent = stale
-    ? `Last verified ${formatDashboardTime(snapshot.generatedAt)}`
-    : `Checked ${formatDashboardTime(snapshot.generatedAt)}`;
+  element("dashboard-last-checked").replaceChildren(
+    stale ? "Last verified " : "Checked ",
+    localTime(snapshot.generatedAt),
+  );
 
   const environmentState = runtimeState;
   const environment = element("dashboard-environment");
@@ -2125,12 +2207,15 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
   ) ?? snapshot.services.find(({ state: serviceState }) => serviceState !== "absent")
     ?? snapshot.services[0];
   state.dashboardSelectedTarget = selected.target;
+  // Installed connections lead the list; the rest follow as compact rows.
   element("dashboard-services").replaceChildren(
-    ...snapshot.services.map((service) =>
-      renderDashboardServiceRow(service, {
-        selected: service.target === selected.target,
-        stale,
-      })),
+    ...[...snapshot.services]
+      .sort((first, second) => Number(second.managed) - Number(first.managed))
+      .map((service) =>
+        renderDashboardServiceRow(service, {
+          selected: service.target === selected.target,
+          stale,
+        })),
   );
   renderDashboardServiceDetail(selected, {
     stale,
@@ -2146,7 +2231,7 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
       ? n8nServices.map(renderDashboardCompactService)
       : [renderDashboardSectionStatus(
           "No n8n services configured",
-          "Start one from the Connections inventory above.",
+          "Start one from Connections.",
           "absent",
         )]),
   );
@@ -2162,9 +2247,7 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
   activityCopy.textContent = stale
     ? "Last verified inventory retained; actions paused"
     : `Inventory verified: ${healthy} healthy, ${attention} runtime checks need attention, ${absent} not configured`;
-  const time = document.createElement("time");
-  time.dateTime = snapshot.generatedAt;
-  time.textContent = formatDashboardTime(snapshot.generatedAt);
+  const time = localTime(snapshot.generatedAt);
   activity.append(activityCopy, time);
   element("dashboard-activity-list").replaceChildren(activity);
   if (stale) clearDashboardStaleTimer();
@@ -2177,7 +2260,7 @@ function renderDashboardFailure() {
   state.dashboardSnapshotStale = true;
   document.body.dataset.dashboardBusy = "false";
   document.body.dataset.dashboardStale = "false";
-  element("dashboard-refresh").disabled = false;
+  element("dashboard-refresh").setAttribute("aria-busy", "false");
   const error = element("dashboard-error");
   error.textContent = state.dashboardSnapshot
     ? "Relmio could not refresh the local inventory. The last verified snapshot is marked stale and all maintenance actions are paused."
@@ -2185,6 +2268,8 @@ function renderDashboardFailure() {
   error.hidden = false;
   if (state.dashboardSnapshot) {
     renderDashboardSnapshot(state.dashboardSnapshot, { stale: true });
+    // A blocking error takes focus, after the stale rerender put focus back on its row.
+    error.focus();
     return;
   }
   const unavailableServices = DASHBOARD_SERVICE_DEFINITIONS.map(
@@ -2213,7 +2298,8 @@ function renderDashboardFailure() {
   renderDashboardRelayPath(unavailableServices[0], null);
   element("dashboard-service-actions").replaceChildren();
   renderDashboardTruth("dashboard-runtime-health", "Unavailable", "unavailable");
-  renderDashboardTruth("dashboard-provider-readiness", "Unavailable", "unavailable");
+  element("dashboard-installed").textContent = "Unavailable";
+  element("dashboard-installed-names").textContent = "Connections";
   renderDashboardTruth("dashboard-inventory-freshness", "Unavailable", "unavailable");
   element("dashboard-last-checked").textContent = "Unavailable";
   const environment = element("dashboard-environment");
@@ -2249,6 +2335,7 @@ function renderDashboardFailure() {
   activityCopy.textContent = "Local inventory unavailable; no actions are available";
   activity.append(activityCopy);
   element("dashboard-activity-list").replaceChildren(activity);
+  error.focus();
 }
 
 async function loadLocalDashboard() {
@@ -2402,8 +2489,9 @@ function setImagesStatus(text) {
 
 function scheduleInstalledImagesPoll(generation, delay = 5_000) {
   window.clearTimeout(state.imagesTimer);
+  // The timer is cleared when it fires, so a set timer always means a tick is due.
   state.imagesTimer = generation === state.imagesGeneration
-    ? window.setTimeout(() => { void pollInstalledImages(generation); }, delay)
+    ? window.setTimeout(() => { state.imagesTimer = null; void pollInstalledImages(generation); }, delay)
     : null;
 }
 
@@ -2411,6 +2499,11 @@ async function pollInstalledImages(generation) {
   if (generation !== state.imagesGeneration) return;
   if (state.operationBusy) {
     scheduleInstalledImagesPoll(generation, 500);
+    return;
+  }
+  // A hidden tab skips the request; the page ticks once when it shows again.
+  if (document.hidden) {
+    scheduleInstalledImagesPoll(generation);
     return;
   }
   let result;
@@ -2585,6 +2678,7 @@ function resetPendingSetupState() {
   state.installedTarget = null;
   state.assistantSearxngReviewId = null;
   state.assistantSearxngReview = null;
+  state.installUnconfirmed = false;
   clearOneTimeSetupValues();
 
   for (const id of [
@@ -2593,7 +2687,7 @@ function resetPendingSetupState() {
     "enable-assistant-searxng-confirm", "remove-bridge-confirm",
     "remove-supergrok-confirm", "remove-assistant-confirm",
     "remove-n8n-stack-confirm", "include-local-searxng",
-    "claude-change-confirm",
+    "claude-change-confirm", "claude-remove-confirm", "claude-keep-login",
   ]) {
     element(id).checked = false;
   }
@@ -2624,13 +2718,14 @@ function resetPendingSetupState() {
     "installed-usage",
     "n8n-sidecar-removal",
     "n8n-supergrok-removal",
-    "n8n-claude-management", "claude-one-time-key",
+    "n8n-claude-management",
     "n8n-assistant-removal",
     "n8n-stack-removal",
     "n8n-stack-resume",
   ]) {
     element(id).hidden = true;
   }
+  setClaudeOneTimeKey("");
   for (const details of document.querySelectorAll(".ready-columns details[open]")) {
     details.open = false;
   }
@@ -2665,8 +2760,10 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
   element("local-dashboard").hidden = true;
   element("local-setup").hidden = false;
   document.body.dataset.localView = "setup";
-  // Management views skip the Docker check, so they show no Docker status.
+  // Management views skip the Docker check, so they show no Docker status. No entry keeps
+  // the message of an earlier check.
   document.querySelector(".docker-status").hidden = !checkDocker;
+  clearMessage();
   let refreshSelectedN8n = false;
   if (target) {
     const input = document.querySelector(`input[name="target"][value="${target}"]`);
@@ -2686,9 +2783,14 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
     } finally {
       state.suppressTargetRefresh = false;
     }
+  } else {
+    // The dashboard's selected connection may have changed the rail notes; match the chosen card.
+    renderFooterForTarget(state.target);
   }
   showSetupStage(target ? "configure" : "choose", { focus: false });
   showStep(1);
+  // A management entry opens the Ready panel next, as a management screen with no install progress.
+  state.managing = !checkDocker;
   if (checkDocker) await initializeLocalWizard();
   if (refreshSelectedN8n) await refreshSelectedN8nContext();
   focusVisibleSetupHeading();
@@ -2754,12 +2856,14 @@ function initializeLocalDashboard() {
     enterDashboardView().catch(showError);
   });
   element("dashboard-refresh").addEventListener("click", () => {
+    // The button stays focusable while a check runs, so a second press must not start another.
+    if (state.dashboardBusy) return;
     enterDashboardView({
       preserveFocus: true,
       preserveScroll: true,
     }).catch(renderDashboardFailure);
   });
-  for (const link of document.querySelectorAll("#local-dashboard-nav a")) {
+  for (const link of document.querySelectorAll("#local-dashboard-nav a, #dashboard-installed")) {
     link.addEventListener("click", () => {
       syncDashboardNavigation(link.getAttribute("href"));
     });
@@ -2939,17 +3043,54 @@ function readClaudeReview(kind) {
 }
 function claudeReviewAccepted(kind) { return Object.values(readClaudeReview(kind)).every(value => value); }
 
+// The Claude sign-in status and what the setup guide reads from it: unchecked, waiting or ready.
+function setClaudeAuthStatus(guideState, text) {
+  const status = element("claude-auth-status");
+  status.dataset.guideState = guideState;
+  status.textContent = text;
+}
+
+// The one-time key is on screen only right after an install. The guide reads data-guide-state.
+function setClaudeOneTimeKey(key) {
+  element("claude-client-key").textContent = key;
+  element("claude-one-time-key").hidden = !key;
+  element("claude-copy-key").dataset.guideState = key ? "fresh" : "none";
+}
+
+// The companion's runtime and approval, in the same words the dashboard uses.
+function renderClaudeStatus({ runtime, approvalExpired, expiresAt }) {
+  const status = element("claude-runtime-status");
+  status.dataset.tone = runtime === "running" ? "success" : runtime === "starting" ? "accent" : "warning";
+  // The setup guide reads "not-running" for a companion that keeps stopping.
+  status.dataset.guideState = claudeKeepsStopping(runtime) ? "not-running" : runtime;
+  element("claude-runtime-text").textContent = CLAUDE_RUNTIME_TEXT[runtime];
+  element("claude-runtime-help").hidden = !claudeKeepsStopping(runtime);
+  element("claude-approval-status").replaceChildren(...(approvalExpired
+    ? ["Approval expired ", localTime(expiresAt), ". Renew before use."]
+    : ["Approval expires ", localTime(expiresAt), ". Sign-in and model access still need checking."]));
+}
+
 function renderClaudeManagement(snapshot) {
   normalizeN8nClaudeDashboardSnapshot(snapshot);
   element("n8n-claude-management").hidden = false;
-  element("claude-approval-status").textContent = snapshot.approvalExpired
-    ? `Approval expired ${snapshot.expiresAt}. Renew before use.`
-    : `Approval expires ${snapshot.expiresAt}. Sign-in and model access still need checking.`;
+  renderClaudeStatus(snapshot);
   element("claude-installed-models").textContent = `Approved models: ${snapshot.models.join(", ")}`;
-  element("claude-auth-status").textContent = "Sign-in has not been checked.";
+  setClaudeAuthStatus("unchecked", "Sign-in has not been checked.");
   element("claude-change-confirm").checked = false;
+  element("claude-keep-login").checked = false;
   for (const input of document.querySelectorAll("[data-claude-renew]")) input.checked = false;
-  updateClaudeChangeApproval();
+  updateClaudeKeepLogin();
+  showClaudeView("manage");
+}
+
+// Manage and Ready show the card and both disclosures, closed. The removal review shows only
+// the removal section: what goes, what stays, the keep choice and the confirmation.
+function showClaudeView(view) {
+  const removal = view === "removal";
+  element("claude-card").hidden = removal;
+  element("claude-manage").hidden = removal;
+  element("claude-manage").open = false;
+  element("claude-removal").open = removal;
 }
 
 function renderClaudeInstallResult(result) {
@@ -2963,15 +3104,15 @@ function renderClaudeInstallResult(result) {
       result.credentialShownOnce !== true || result.deploymentMode !== "installed") {
     throw new Error("The local Claude installer returned an unexpected response.");
   }
+  // Docker's first health check runs about a minute after an install, so the companion begins as "starting".
   const snapshot = { target: result.target, endpoint: result.endpoint, auth: { configured: true, disclosure: "one-time" },
-    canRemove: true, models: result.models, expiresAt: result.expiresAt, approvalExpired: false };
+    canRemove: true, models: result.models, expiresAt: result.expiresAt, approvalExpired: false, runtime: "starting" };
   normalizeN8nClaudeDashboardSnapshot(snapshot);
   resetDashboardActionReview();
   for (const id of ["installed-siwc-models", "local-siwc-owner", "installed-usage"]) element(id).hidden = true;
   state.installedTarget = result.target;
   renderClaudeManagement(snapshot);
-  element("claude-one-time-key").hidden = false;
-  element("claude-client-key").textContent = result.clientCredential;
+  setClaudeOneTimeKey(result.clientCredential);
   element("done-title").textContent = "Claude companion installed";
   element("done-detail").textContent = "Save the one-time key, then sign in in your own terminal. Installation does not prove Claude model access.";
   element("done-provider-context").textContent = "Claude · Experimental · private n8n companion";
@@ -2988,10 +3129,21 @@ function renderClaudeInstallResult(result) {
 }
 
 function updateClaudeChangeApproval() {
-  const confirmed = element("claude-change-confirm").checked && state.installedTarget === "n8n-claude-oauth";
+  const installed = state.installedTarget === "n8n-claude-oauth";
+  const confirmed = installed && element("claude-change-confirm").checked;
   element("claude-renew").disabled = !confirmed || !claudeReviewAccepted("renew");
   element("claude-sign-out").disabled = !confirmed;
-  element("claude-remove").disabled = !confirmed;
+  // Removal has its own confirmation, beside what it deletes and keeps.
+  element("claude-remove").disabled = !installed || !element("claude-remove-confirm").checked;
+}
+
+// The removal confirmation names what is deleted, so changing the keep choice clears it.
+function updateClaudeKeepLogin() {
+  element("claude-remove-confirm").checked = false;
+  element("claude-remove-confirm-copy").textContent = element("claude-keep-login").checked
+    ? "I authorize Relmio to remove only its Claude companion and managed files and to keep the login volume. Leave n8n and its Docker network unchanged."
+    : "I authorize Relmio to remove only its Claude companion, login volume and managed files. Leave n8n and its Docker network unchanged.";
+  updateClaudeChangeApproval();
 }
 
 function isN8nLocalModel(target) {
@@ -3211,9 +3363,16 @@ function preselectManagedN8n() {
 }
 
 async function refreshN8nDiscovery() {
-  element("n8n-discovery-status").textContent =
-    "Discovering running n8n containers without changing Docker…";
-  const result = await api("/api/local/n8n/discover");
+  const status = element("n8n-discovery-status");
+  status.textContent = "Discovering running n8n containers without changing Docker…";
+  // The loading mark pulses briefly, then rests until the answer arrives.
+  status.dataset.loading = "true";
+  let result;
+  try {
+    result = await api("/api/local/n8n/discover");
+  } finally {
+    delete status.dataset.loading;
+  }
   state.n8nContainers = validateN8nDiscovery(result);
   state.n8nDiscoveryLoaded = true;
   element("detected-local-integration-management").hidden =
@@ -3550,7 +3709,10 @@ function showStoppedManagedLocalN8nStack() {
 function renderFooterForTarget(target) {
   const localModel = isN8nLocalModel(target);
   const chatGptBridge = isN8nSidecar(target);
-  element("local-footer-provider").hidden = localModel || chatGptBridge;
+  // Claude's experimental notice sits here once, so every Claude step shows it exactly once.
+  const claude = isN8nClaude(target);
+  element("local-footer-claude").hidden = !claude;
+  element("local-footer-provider").hidden = localModel || chatGptBridge || claude;
   element("local-footer-provider").lastElementChild.textContent =
     (isCodexChat(target) || target === "codex-chatgpt")
     ? "ChatGPT sign-in starts in Relmio. Plan permission and first-use acknowledgment are separate; the installed runtime owns refresh after final approval."
@@ -3647,7 +3809,7 @@ function renderTarget() {
   element("target-guidance-detail").textContent = stack
     ? "Existing n8n is not changed. Code Sandbox, if selected, uses a privileged host-root-equivalent runner. After setup, you can add ChatGPT plan, a local model and more to this n8n."
     : localModel ? "No host port. Other containers on the selected network can reach the model API, which has no login. Relmio checks memory and disk, then downloads into an owned cache. No cloud fallback."
-    : claude ? CLAUDE_LOCAL_NOTICE
+    : claude ? "Adds only a private, text-only companion on the selected Docker network. After install, sign in in your own terminal. This browser never asks for a Claude login or paste code."
     : n8nSuperGrok ? "Adds only a private sidecar. Run relmio grok login --n8n after install. This browser does not ask for a provider token."
     : assistant ? "Code Sandbox is included. SearXNG is optional and off by default. The runner is privileged and host-root equivalent. For production, use Daytona. The sandbox key is shown once. Set model credentials in n8n."
     : grokBuild ? "Private Chat Completions for local apps. Official Grok sign-in uses its own session. Clients use a separate Relmio key."
@@ -3723,12 +3885,17 @@ function renderPlan(plan) {
   const grokBuild = isGrokBuild(plan.target);
   const n8nSuperGrok = isN8nSuperGrok(plan.target);
   const claude = isN8nClaude(plan.target);
-  element("claude-review").hidden = !claude;
+  for (const id of ["review-claude-models-row", "review-claude-version-row", "review-claude-sha-row", "claude-review-settings"]) {
+    element(id).hidden = !claude;
+  }
+  element("claude-review-continue").disabled = true;
   if (claude) {
     for (const input of document.querySelectorAll("[data-claude-review]")) input.checked = false;
-    element("claude-review-models").textContent = `Models: ${plan.models.join(", ")}. Approval lasts less than 7 days.`;
-    element("claude-review-binary").textContent = `Claude Code ${plan.version} (${plan.arch}), SHA256 ${plan.executableSha256}`;
+    element("review-claude-models").textContent = plan.models.join(", ");
+    for (const id of ["claude-review-version", "review-claude-version"]) element(id).textContent = `${plan.version} (${plan.arch})`;
+    for (const id of ["claude-review-sha", "review-claude-sha"]) element(id).textContent = plan.executableSha256;
   }
+  showReviewStage(claude ? "approval" : "plan", { focus: false });
   const localModel = isN8nLocalModel(plan.target);
   const codexChat = isCodexChat(plan.target);
   const sidecar = isN8nSidecar(plan.target);
@@ -3852,7 +4019,8 @@ function renderPlan(plan) {
     replaceListItems(element("review-will"), ["Build only the pinned Claude companion and private login volume.", "Join the selected Docker network without publishing any host port.", "Write approval only after final confirmation; approval expires within 7 days.", ...(managedN8n ? ["Add its OpenAI credential to this Relmio-created n8n."] : ["Show the local key once for manual n8n setup."])]);
     replaceListItems(element("review-will-not"), ["Restart, rebuild, stop or recreate n8n.", "Read, copy or transmit your Claude login or paste code.", "Enable tools, Responses API, AI Agent or n8n AI Assistant."]);
     element("install-confirm-copy").textContent = `I approve this exact Claude companion and the four review answers.${managedN8n ? " Relmio may add its credential to this n8n." : " n8n stays unchanged."}`;
-    appendPolicyNotice(element("review-policy"), "Experimental Claude companion", `${CLAUDE_LOCAL_NOTICE} ${CLAUDE_N8N_SETTINGS}`);
+    // The rail carries the experimental notice once; the plan keeps the n8n limits in its own notice.
+    element("review-policy").replaceChildren();
   } else if (n8nSuperGrok) {
     replaceListItems(element("review-will"), ["Create the new SuperGrok sidecar and its private session volume.", "Join the selected Docker network.", "Expose port 14502 only inside that network.", "Check local health. Provider sign-in and model discovery stay separate.", ...(managedN8n ? ["Add an OpenAI credential to the Relmio-created n8n."] : [])]);
     replaceListItems(element("review-will-not"), [managedN8n ? "Restart the selected n8n container or change its network." : "Change the selected n8n container or its network.", "Publish port 14502 on this computer, your network, ngrok, or the internet.", "Ask for, show, or store a SuperGrok provider token in this browser.", "Install Code Sandbox or SearXNG."]);
@@ -3896,6 +4064,23 @@ function renderPlan(plan) {
   }
 }
 
+// Claude reviews in two stages so each fits one screen, as on /claude-vps: the four owner
+// answers first, then the plan with its final confirmation. Every other plan has one stage.
+function showReviewStage(stage, { focus = true } = {}) {
+  const approval = stage === "approval";
+  element("claude-review").hidden = !approval;
+  element("review-plan").hidden = approval;
+  element("review-approval").hidden = approval;
+  element("install-settings-button").hidden = approval;
+  element("claude-review-continue").hidden = !approval;
+  element("review-step-caption").textContent = approval ? "Step 2 of 4 · Owner review" : "Step 2 of 4 · Review";
+  element("review-title").textContent = approval ? "Review Claude use" : "Review the plan";
+  element("review-detail").textContent = approval
+    ? "Review all four items yourself. Nothing has changed yet."
+    : "Nothing has changed yet. Check this plan, then confirm.";
+  if (focus) element("review-title").focus({ preventScroll: true });
+}
+
 function prepareInstallPanel() {
   const grokBuild = isGrokBuild(state.plan.target);
   const n8nSuperGrok = isN8nSuperGrok(state.plan.target);
@@ -3905,6 +4090,10 @@ function prepareInstallPanel() {
   const assistant = isN8nAssistant(state.plan.target);
   const stack = isN8nStack(state.plan.target);
   const n8nTarget = sidecar || n8nSuperGrok || isN8nClaude(state.plan.target) || localModel || assistant || stack;
+  // A fresh reviewed plan ends the unconfirmed-install state.
+  state.installUnconfirmed = false;
+  element("install-review-again").hidden = true;
+  element("install-button").hidden = false;
   element("codex-install-warning").hidden = n8nTarget;
   element("local-background-consent-row").hidden = !sidecar;
   element("local-background-consent").checked = false;
@@ -4058,12 +4247,17 @@ function renderLocalModelStatus(status) {
   else clearLocalModelPoll();
 }
 
-function scheduleLocalModelPoll() {
+function scheduleLocalModelPoll(delay = 3_000) {
   if (state.localModelPollTimer !== null) return;
   const generation = state.localModelGeneration;
   state.localModelPollTimer = window.setTimeout(async () => {
     state.localModelPollTimer = null;
     if (generation !== state.localModelGeneration || element("n8n-local-model-management").hidden) return;
+    // A hidden tab skips the request; the page ticks once when it shows again.
+    if (document.hidden) {
+      scheduleLocalModelPoll();
+      return;
+    }
     try {
       const status = await api("/api/local/model/operation");
       if (generation !== state.localModelGeneration || element("n8n-local-model-management").hidden) return;
@@ -4076,7 +4270,7 @@ function scheduleLocalModelPoll() {
       element("local-model-state").textContent = "Model status could not be verified. Refresh to inspect it again.";
       showError(error);
     }
-  }, 3_000);
+  }, delay);
 }
 
 async function refreshLocalModelStatus() {
@@ -4769,11 +4963,11 @@ async function copyText(value, trigger) {
   if (!copied) throw new Error("The browser refused clipboard access.");
 }
 
-// Visual confirmation only. The accessible name never changes; callers
-// announce success through a polite status region.
+// Visual confirmation only, drawn by the kit from data-copied. The accessible name never
+// changes; callers announce success through a polite status region.
 function flashCopied(button) {
-  button.classList.add("copied");
-  window.setTimeout(() => button.classList.remove("copied"), 1_800);
+  button.setAttribute("data-copied", "");
+  window.setTimeout(() => button.removeAttribute("data-copied"), 1_800);
 }
 
 element("target-form").addEventListener("submit", async (event) => {
@@ -4816,7 +5010,6 @@ element("target-form").addEventListener("submit", async (event) => {
             publicAccess: stackUsesNgrok() ? "ngrok" : "none",
             ...(stackUsesNgrok() ? { ngrokHostname: element("ngrok-hostname").value } : {}),
             n8nPort: element("n8n-stack-port").value,
-            ...(stackUsesNgrok() ? { ngrokInspectorPort: element("ngrok-inspector-port").value } : {}),
             timezone: element("n8n-stack-timezone").value,
             assistantMode: element("n8n-stack-assistant-mode").value,
           }
@@ -4941,7 +5134,7 @@ element("target-form").addEventListener("input", (event) => {
 element("local-port").addEventListener("input", invalidatePlan);
 element("include-local-searxng").addEventListener("change", invalidatePlan);
 element("n8n-stack-public-access").addEventListener("change", updateStackPublicAccess);
-for (const id of ["ngrok-hostname", "n8n-stack-port", "ngrok-inspector-port", "n8n-stack-timezone", "n8n-stack-assistant-mode"]) {
+for (const id of ["ngrok-hostname", "n8n-stack-port", "n8n-stack-timezone", "n8n-stack-assistant-mode"]) {
   element(id).addEventListener("input", invalidatePlan);
   element(id).addEventListener("change", invalidatePlan);
 }
@@ -5372,10 +5565,13 @@ element("enable-assistant-searxng-button").addEventListener("click", async (even
 });
 
 function updateLocalReviewApproval() {
+  const claude = isN8nClaude(state.plan?.target);
+  // Claude's four owner answers open its plan stage; the plan's own confirmation still gates the install.
+  element("claude-review-continue").disabled = !claude || !claudeReviewAccepted("review");
   element("install-settings-button").disabled = !element("install-confirm").checked ||
     (state.plan?.migrationRequired === true && !element("local-migration-consent").checked) ||
     (state.plan?.replacementRequired === true && !element("local-replacement-consent").checked) ||
-    (isN8nClaude(state.plan?.target) && !claudeReviewAccepted("review"));
+    (claude && !claudeReviewAccepted("review"));
 }
 element("install-confirm").addEventListener("change", updateLocalReviewApproval);
 element("local-migration-consent").addEventListener("change", updateLocalReviewApproval);
@@ -5503,6 +5699,8 @@ element("install-button").addEventListener("click", async (event) => {
       ? "Creating and verifying only the private SuperGrok n8n sidecar…"
       : isN8nAssistant(state.plan.target)
         ? "Creating and verifying the private Code Sandbox and selected SearXNG option…"
+      : isN8nClaude(state.plan.target)
+        ? "Building and verifying only the private Claude companion on the Docker network, with no host port…"
       : "Building and verifying the loopback-only Docker container…",
   );
   try {
@@ -5512,7 +5710,7 @@ element("install-button").addEventListener("click", async (event) => {
     });
     renderInstallResult(result);
     state.planId = null;
-    showStep(4);
+    showStep(4, { installed: true });
     const chatgptTarget = ["n8n-openai-oauth", "codex-chatgpt", "codex-chat"].includes(result.target);
     setMessage(
       result.finalizationFailure
@@ -5606,8 +5804,23 @@ element("install-button").addEventListener("click", async (event) => {
       element("n8n-stack-removal").hidden = true;
       element("n8n-stack-resume").hidden = true;
     }
-    showStep(1);
-    setMessage("The installation was not confirmed. Review the error and inspect any owned service before another plan.");
+    if (namesRejectedField(error) || !["none", "fix-request", undefined].includes(error.recovery)) {
+      // A named setting or a sign-in step is fixed on the settings stage.
+      showStep(1);
+      setMessage("The install was not confirmed. Your settings are kept. Fix what the error names, then review the plan again.");
+    } else {
+      // No setting explains this failure and the plan is used up. The person stays on this
+      // step and reviews a fresh plan from the settings they already entered.
+      error.errorCode = "install_unconfirmed";
+      state.installUnconfirmed = true;
+      element("install-button").hidden = true;
+      element("local-background-consent-row").hidden = true;
+      element("install-review-again").hidden = false;
+      element("install-intro").textContent =
+        "Your settings are kept and nothing in them needs fixing. Check Connections on the dashboard for a leftover connection, then review the plan again.";
+      showStep(3);
+      setMessage("The install was not confirmed. Your settings are kept.");
+    }
     showError(error);
   } finally {
     if (publicLink) {
@@ -6262,7 +6475,18 @@ for (const button of document.querySelectorAll(".back-button")) {
         element(id).disabled = true;
       }
     }
-    showStep(Number(button.dataset.back));
+    // After an unconfirmed install the used plan is gone, so Back on Install returns to the kept settings.
+    if (state.installUnconfirmed && state.step === 3) {
+      showStep(1);
+      setMessage("Your settings are kept. Change them if you want, then review the plan again.");
+      return;
+    }
+    // Claude's plan stage goes back to its four owner answers before the settings.
+    if (state.step === 2 && isN8nClaude(state.plan?.target) && element("claude-review").hidden) {
+      showReviewStage("approval");
+    } else {
+      showStep(Number(button.dataset.back));
+    }
     setMessage("No new local installation has started.");
   });
 }
@@ -6377,6 +6601,8 @@ initializeInstalledImages();
 
 element("claude-models").addEventListener("input", invalidatePlan);
 element("claude-change-confirm").addEventListener("change", updateClaudeChangeApproval);
+element("claude-remove-confirm").addEventListener("change", updateClaudeChangeApproval);
+element("claude-keep-login").addEventListener("change", updateClaudeKeepLogin);
 for (const input of document.querySelectorAll("[data-claude-renew]")) input.addEventListener("change", updateClaudeChangeApproval);
 element("claude-check-sign-in").addEventListener("click", async event => {
   const button = event.currentTarget;
@@ -6387,33 +6613,48 @@ element("claude-check-sign-in").addEventListener("click", async event => {
     if (!hasExactKeys(result, ["loggedIn", "authMethod", "subscriptionType"]) ||
         typeof result.loggedIn !== "boolean" || ![result.authMethod, result.subscriptionType].every(value =>
           value === null || (typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/u.test(value)))) throw new Error("The Claude sign-in status is invalid.");
-    element("claude-auth-status").textContent = result.loggedIn && result.authMethod === "claude.ai"
+    const signedIn = result.loggedIn && result.authMethod === "claude.ai";
+    setClaudeAuthStatus(signedIn ? "ready" : "waiting", signedIn
       ? `Claude sign-in confirmed (${result.subscriptionType ?? "subscription unknown"}). This does not prove model access.`
-      : "Not signed in with claude.ai. Run the command in your terminal, then check again.";
-  } catch (error) { showError(error); }
+      : "Not signed in with claude.ai. Run the command in your terminal, then check again.");
+  } catch (error) {
+    setClaudeAuthStatus("unchecked", "Sign-in has not been checked.");
+    showError(error);
+  }
   finally { setBusy(button, false); }
 });
 for (const action of ["renew", "sign-out", "remove"]) {
   element(`claude-${action}`).addEventListener("click", async event => {
     const button = event.currentTarget;
-    if (state.installedTarget !== "n8n-claude-oauth" || !element("claude-change-confirm").checked ||
+    // Removal is confirmed in its own section; renewal and sign-out share the other confirmation.
+    const confirmation = element(action === "remove" ? "claude-remove-confirm" : "claude-change-confirm");
+    if (state.installedTarget !== "n8n-claude-oauth" || !confirmation.checked ||
         (action === "renew" && !claudeReviewAccepted("renew"))) return;
+    // Removal deletes the Claude sign-in too, unless the person chose to keep it for a reinstall.
+    const keepLogin = action === "remove" && element("claude-keep-login").checked;
     if (setBusy(button, true, "Changing only the Claude companion…") === false) return;
     clearError();
     try {
       const result = await api(`/api/local/claude/${action}`, { method: "POST",
-        body: { confirmed: true, ...(action === "renew" ? { review: readClaudeReview("renew") } : {}) } });
-      if (!hasExactKeys(result, ["target", action === "remove" ? "removed" : "changed", ...(action === "renew" ? ["expiresAt"] : [])]) ||
+        body: { confirmed: true, ...(action === "renew" ? { review: readClaudeReview("renew") } : {}),
+          ...(keepLogin ? { keepLogin: true } : {}) } });
+      if (!hasExactKeys(result, ["target", ...(action === "remove" ? ["removed", "loginKept"] : ["changed"]), ...(action === "renew" ? ["expiresAt"] : [])]) ||
           result.target !== "n8n-claude-oauth" || result[action === "remove" ? "removed" : "changed"] !== true ||
+          (action === "remove" && typeof result.loginKept !== "boolean") ||
           (action === "renew" && (typeof result.expiresAt !== "string" || !Number.isFinite(Date.parse(result.expiresAt))))) throw new Error("The Claude action result is invalid.");
       if (action === "remove") {
         resetDashboardActionReview();
         state.installedTarget = null;
         element("done-title").textContent = "Claude for n8n removed";
-        element("done-detail").textContent = "Only Relmio's Claude companion, login volume and managed files were removed. n8n and its network stayed unchanged.";
+        element("done-detail").textContent = result.loginKept
+          ? "Relmio removed its Claude companion and managed files and kept your Claude sign-in for a reinstall. n8n and its network stayed unchanged."
+          : keepLogin
+            ? "Relmio removed its Claude companion and managed files, but could not keep the Claude sign-in. Sign in again after you add it. n8n and its network stayed unchanged."
+            : "Only Relmio's Claude companion, login volume and managed files were removed. n8n and its network stayed unchanged.";
       } else {
-        element("claude-auth-status").textContent = action === "sign-out" ? "Claude signed out." : "Approval renewed. Check sign-in before use.";
-        if (action === "renew") element("claude-approval-status").textContent = `Approval expires ${result.expiresAt}.`;
+        setClaudeAuthStatus("unchecked", action === "sign-out" ? "Claude signed out." : "Approval renewed. Check sign-in before use.");
+        // Renewal restarts the companion, and Docker's first health check takes about a minute.
+        if (action === "renew") renderClaudeStatus({ runtime: "starting", approvalExpired: false, expiresAt: result.expiresAt });
       }
       state.dashboardSnapshotStale = true;
       setMessage("Claude action completed. n8n was not restarted.");
@@ -6421,8 +6662,9 @@ for (const action of ["renew", "sign-out", "remove"]) {
     finally {
       setBusy(button, false);
       element("claude-change-confirm").checked = false;
+      element("claude-keep-login").checked = false;
       for (const input of document.querySelectorAll("[data-claude-renew]")) input.checked = false;
-      updateClaudeChangeApproval();
+      updateClaudeKeepLogin();
     }
   });
 }
@@ -6443,4 +6685,29 @@ element("claude-check-models").addEventListener("click", async event => {
     element("claude-model-check-note").textContent = `Companion lists: ${result.models.join(", ")}. No Claude prompt was sent; account access is not proved.`;
   } catch (error) { showError(error); }
   finally { setBusy(button, false); }
+});
+
+element("claude-review-continue").addEventListener("click", () => {
+  if (state.operationBusy || !claudeReviewAccepted("review")) return;
+  clearError();
+  showReviewStage("plan");
+});
+
+// After an unconfirmed install the used plan is gone. A fresh one comes from the kept settings.
+element("install-review-again").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  // A setting that blocks the review is fixed on the settings stage.
+  if (element("review-button").disabled) showStep(1);
+  else element("target-form").requestSubmit();
+});
+
+// Hidden tabs skip their status requests. One tick runs when the tab shows again.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  if (state.imagesTimer !== null) scheduleInstalledImagesPoll(state.imagesGeneration, 0);
+  if (state.localModelPollTimer !== null) {
+    window.clearTimeout(state.localModelPollTimer);
+    state.localModelPollTimer = null;
+    scheduleLocalModelPoll(0);
+  }
 });

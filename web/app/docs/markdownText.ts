@@ -45,13 +45,21 @@ function inlineText(markdown: string) {
 const fencePattern = /^ {0,3}(`{3,}|~{3,})/u;
 const headingPattern = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/u;
 
-/** ATX headings outside fenced code blocks, in document order. */
-function markdownHeadings(markdown: string) {
-  const headings: Array<{ level: number; text: string }> = [];
+type MarkdownLine = {
+  text: string;
+  /** Inside a fenced code block. */
+  code: boolean;
+  heading?: { level: number; text: string };
+};
+
+/** Lines in document order without the fences of code blocks. Lines outside
+    code blocks carry their ATX heading. */
+function markdownLines(markdown: string) {
+  const lines: MarkdownLine[] = [];
   let fence: string | null = null;
 
-  for (const line of markdown.split("\n")) {
-    const fenceMatch = fencePattern.exec(line);
+  for (const text of markdown.split("\n")) {
+    const fenceMatch = fencePattern.exec(text);
     if (fenceMatch) {
       const marker = fenceMatch[1];
       if (fence === null) {
@@ -61,15 +69,20 @@ function markdownHeadings(markdown: string) {
       }
       continue;
     }
-    if (fence !== null) continue;
-
-    const headingMatch = headingPattern.exec(line);
-    if (headingMatch) {
-      headings.push({ level: headingMatch[1].length, text: headingMatch[2] });
+    if (fence !== null) {
+      lines.push({ text, code: true });
+      continue;
     }
+
+    const headingMatch = headingPattern.exec(text);
+    lines.push(
+      headingMatch
+        ? { text, code: false, heading: { level: headingMatch[1].length, text: headingMatch[2] } }
+        : { text, code: false },
+    );
   }
 
-  return headings;
+  return lines;
 }
 
 const outlineLimit = 14;
@@ -77,7 +90,8 @@ const outlineLimit = 14;
 /** Section links for "On this page". Long guides list only their h2 sections
     so the outline stays short. */
 export function markdownOutline(markdown: string): OutlineItem[] {
-  const items = markdownHeadings(markdown)
+  const items = markdownLines(markdown)
+    .flatMap((line) => line.heading ?? [])
     .filter((heading) => heading.level === 2 || heading.level === 3)
     .map((heading) => {
       const label = inlineText(heading.text);
@@ -114,7 +128,7 @@ function shortReleaseLabel(version: string, series: string) {
 export function changelogReleases(markdown: string): ReleaseSeries[] {
   const groups: ReleaseSeries[] = [];
 
-  for (const heading of markdownHeadings(markdown)) {
+  for (const heading of markdownLines(markdown).flatMap((line) => line.heading ?? [])) {
     if (heading.level !== 2) continue;
     const match = releasePattern.exec(heading.text.trim());
     const version = match?.[1];
@@ -177,4 +191,72 @@ export function guideSummary(markdown: string) {
   if (sentences) return sentences;
   const cut = text.lastIndexOf(" ", summaryLength);
   return `${text.slice(0, cut > 0 ? cut : summaryLength).replace(/[,;:.]$/u, "")}…`;
+}
+
+export type DocumentationSection = {
+  /** Slug of the guide the section belongs to. */
+  slug: string;
+  /** Id the renderer gives the heading that starts the section. */
+  id: string;
+  heading: string;
+  /** Everything the section shows, as plain text on one line. */
+  text: string;
+};
+
+const tableRulePattern = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/u;
+const linkDefinitionPattern = /^ {0,3}\[[^\]]+\]:\s/u;
+
+/** A prose line as the reader sees it: no heading, quote, list or table
+    markers and no link targets. */
+function plainLine(line: string) {
+  if (tableRulePattern.test(line) || linkDefinitionPattern.test(line)) return "";
+  return inlineText(
+    line
+      .replace(/^ {0,3}#{1,6}[ \t]+/u, "")
+      .replace(/^\s*(?:>\s*)*/u, "")
+      .replace(/^(?:[-*+]|\d+[.)])\s+/u, "")
+      .replaceAll("|", " "),
+  );
+}
+
+/** A guide's sections for the docs search: one per h1, h2 and h3 heading,
+    with the plain text up to the next of them. Deeper headings and code
+    blocks stay in their section's text. */
+export function markdownSections(markdown: string): Array<Omit<DocumentationSection, "slug">> {
+  const sections: Array<{ id: string; heading: string; lines: string[] }> = [];
+
+  for (const line of markdownLines(markdown)) {
+    if (line.heading && line.heading.level <= 3) {
+      const heading = inlineText(line.heading.text);
+      sections.push({ id: slugify(heading), heading, lines: [] });
+    } else {
+      sections.at(-1)?.lines.push(line.code ? line.text : plainLine(line.text));
+    }
+  }
+
+  return sections.map(({ id, heading, lines }) => ({
+    id,
+    heading,
+    text: lines.join(" ").replace(/\s+/gu, " ").trim(),
+  }));
+}
+
+/** Sections whose heading or text contains the query, ignoring case and extra
+    spaces: heading matches first, then text matches, each in guide order. */
+export function matchingSections(sections: readonly DocumentationSection[], query: string) {
+  const needle = query.trim().toLowerCase().replace(/\s+/gu, " ");
+  const inHeading: DocumentationSection[] = [];
+  const inText: DocumentationSection[] = [];
+  if (!needle) return inHeading;
+
+  for (const section of sections) {
+    if (section.heading.toLowerCase().includes(needle)) inHeading.push(section);
+    else if (section.text.toLowerCase().includes(needle)) inText.push(section);
+  }
+  return [...inHeading, ...inText];
+}
+
+/** Link to the heading that starts a section, on its guide page. */
+export function sectionHref({ slug, id }: Pick<DocumentationSection, "slug" | "id">) {
+  return id ? `/docs/${slug}#${id}` : `/docs/${slug}`;
 }

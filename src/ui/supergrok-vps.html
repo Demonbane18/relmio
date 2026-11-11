@@ -96,7 +96,7 @@
               <div class="rm-panel__heading">
                 <span class="rm-eyebrow">Step 1 of 4</span>
                 <h2 id="ssh-title" class="rm-h1" tabindex="-1">Check your server</h2>
-                <p class="rm-muted">Confirm the server identity before you sign in. The password clears after each attempt.</p>
+                <p class="rm-muted">Check the server identity before you connect to the server.</p>
               </div>
             </header>
             <form id="ssh-form" class="route-form">
@@ -104,33 +104,36 @@
                 <div class="route-columns route-columns--form">
                   <div class="route-main">
                     <div class="route-target">
-                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
-                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
-                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" inputmode="url" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">Connection port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
+                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check this server</button>
                     </div>
-                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
+                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" aria-describedby="fingerprint-hint" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span><span id="fingerprint-hint" class="rm-check__hint">Compare this fingerprint with a trusted record for your server before you approve it.</span></span></label>
                     <div class="rm-form-grid route-signin">
-                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
+                      <label class="rm-field"><span class="rm-field__label">Sign-in name</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
                       <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after you confirm the server identity.</span></label>
+                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after the identity check. Clears after you connect.</span></label>
                     </div>
                   </div>
                   <div class="route-aside">
                     <p class="rm-small rm-muted">Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
-                    <p class="rm-small rm-muted">Passwordless sudo works only on the Local model page.</p>
                     <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
-                    <details class="rm-disclosure">
-                      <summary>About SSH agent sign-in</summary>
-                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases or forwarded agent are sent to the server.</p></div>
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact">
+                      <summary>More details about SSH sign-in</summary>
+                      <div class="rm-disclosure__body">
+                        <p>Passwordless sudo works only on the local model page.</p>
+                        <p>For agent sign-in, load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
+                      </div>
                     </details>
                     <p id="ssh-session" class="rm-small route-session" role="status"></p>
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
                   </div>
                 </div>
               </div>
               <footer class="rm-panel__footer">
                 <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
-                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
-                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect n8n<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect from VPS</button>
+                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
               </footer>
             </form>
           </section>
@@ -147,6 +150,7 @@
                 <label class="rm-field"><span class="rm-field__label">Running n8n container</span><select id="container" class="rm-select"></select></label>
                 <label class="rm-field"><span class="rm-field__label">Shared private Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">The companion joins this existing network. n8n does not change.</span></label>
               </div>
+              <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
               <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status" aria-live="polite"></p>
             </div>
             <footer class="rm-panel__footer">

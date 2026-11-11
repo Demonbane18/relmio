@@ -229,12 +229,12 @@ caller in both apps.
 | App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
-| Stepper | `rm-stepper`, `--track`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker`, `rm-stepper__label` | Progress through a flow; `aria-current="step"`, `data-state="done"`. `--track` is the wizards' quest track: one row at every width, markers only below 480 px. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
+| Stepper | `rm-stepper`, `--track`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker`, `rm-stepper__label` | Progress through a flow; `aria-current="step"`, `data-state="done"`. A step that becomes done fades in its check and fills its connector from the start. `--track` is the wizards' quest track: one row at every width, markers only below 480 px. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
 | Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
 | Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
 | Choice | `rm-choice` and its `__icon`, `__title`, `__text`, `__meta` | A selectable option row or card; `__meta` is one short fact under the text, such as what the option needs |
-| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `--sm` only for secondary controls |
-| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name; `aria-pressed="true"` marks a toggle that is on |
+| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `data-copied` marks a copy button after a copy; `--sm` only for secondary controls |
+| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name; `aria-pressed="true"` marks a toggle that is on; `data-copied` as on a button |
 | Link | `rm-link`, `--quiet`, `--standalone` | Text links; `--standalone` for a link outside a sentence |
 | Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
 | Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
@@ -245,15 +245,15 @@ caller in both apps.
 | Notice | `rm-notice`, `--info`, `__title`, `__text`, `__toggle`, `__body` | A one-line warning that expands for detail |
 | Badge | `rm-badge`, `--accent`, `--success`, `--warning` | Short labels |
 | Status | `rm-status`, `rm-status__dot`, `data-tone` | A dot plus a sentence |
-| Progress | `rm-progress`, `--indeterminate`, `rm-progress__bar` | Work in progress |
+| Progress | `rm-progress`, `--indeterminate`, `rm-progress__bar` | Work in progress. Set `--rm-progress` on the bar to a ratio from 0 to 1 and keep `aria-valuenow` in step; use `--indeterminate` while the amount is unknown |
 | Definition list | `rm-dl` | Review facts and results |
 | Table | `rm-table-wrap`, `rm-table` | Tabular data; the wrap scrolls sideways on narrow screens |
 | Terminal | `rm-terminal`, `__bar`, `__actions`, `__body`, `__prompt`, `__note` | Commands; always dark |
-| Disclosure | `rm-disclosure`, `--plain`, `rm-disclosure__body` | Optional detail |
+| Disclosure | `rm-disclosure`, `--plain`, `--compact`, `rm-disclosure__body`, `__region`, `__list` | Optional detail. `--compact` is a one-line summary in small text. `__region` is a box in the body, at most 6rem tall, that scrolls by itself; `__list` is a short list inside it |
 | Prose | `rm-prose` | Generated Markdown and long text |
 | Type | `rm-display`, `rm-h1`, `rm-h2`, `rm-h3`, `rm-eyebrow`, `rm-lede`, `rm-muted`, `rm-small` | Text styles |
 | Icon | `rm-icon` plus `rm-icon--<name>`, sizes `--xs`, `--sm`, `--lg` | Lucide icons drawn in `currentColor` |
-| Utilities | `rm-cluster`, `rm-grid`, `rm-push`, `rm-visually-hidden`, `rm-skip-link` | Layout and accessibility helpers |
+| Utilities | `rm-cluster`, `rm-grid`, `rm-push`, `rm-fade-in`, `rm-visually-hidden`, `rm-skip-link` | Layout, reveal and accessibility helpers |
 
 Icon names: monitor, sun, moon, menu, x, check, check-circle, alert, info,
 external, coffee, copy, chevron-down, chevron-right, arrow-right, arrow-left,
@@ -277,9 +277,9 @@ Component rules:
 - A link that stands alone, outside a sentence, uses `rm-link--standalone` for
   a 24 px target. Links inside a sentence keep their underline, including
   `rm-link--quiet`.
-- A region that scrolls sideways, such as a wide table wrap or a code block,
-  takes `tabindex="0"`, a role and a name, so keyboard users can scroll it
-  and see the focus ring.
+- A region that scrolls by itself, such as a wide table wrap, a code block or
+  an `rm-disclosure__region`, takes `tabindex="0"`, a role and a name, so
+  keyboard users can scroll it and see the focus ring.
 - Every icon-only control has an accessible name. Decorative icons get
   `aria-hidden="true"`.
 - Choices are real controls: a `<button>` with `aria-pressed` or
@@ -304,11 +304,18 @@ Component rules:
   pushes the step past one screen; on narrower screens, place it next to the
   footer actions.
   Passing progress messages use `role="status"`.
-- Commands use `rm-terminal`. The copy button announces success through a
-  polite live region and does not move focus.
+- Commands use `rm-terminal`. A copy button sets `data-copied` for about two
+  seconds after a copy, and the kit swaps its icon for a check in the success
+  color. It announces success through a polite live region and does not move
+  focus.
 - Long tokens such as fingerprints, hostnames and URLs wrap
   (`overflow-wrap: anywhere` is built into fields, checks, callouts and
   definition lists).
+- The server check on the wizard's server pages is a disclosure that never
+  opens by itself. Closed, it is one line that counts the warnings and names a
+  failed check, for example "Server check: Network problem, 1 warning". Opened
+  by the person, its details scroll inside an `rm-disclosure__region`, never
+  the page.
 
 Example step panel:
 
@@ -341,21 +348,40 @@ it on or off, and `/api/ui/preferences` keeps the choice.
 
 | Part | Classes | Rules |
 | --- | --- | --- |
-| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__body`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
-| Chip | `rm-guide-chip` | The collapsed dock, available on every view even with the walkthrough off. "Help" opens contextual help; an error uses "Need help with this error?" |
-| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead, and the numbers never overlap |
+| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__body`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide", "Help" or "Error help" for its current mode: the mascot, quest name, progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use default or ghost styles so the page keeps its primary action. Escape collapses it and returns focus |
+| Chip | `rm-guide-chip` | The collapsed dock, available on every view. With the walkthrough on, it shows the current tip's title and opens that tip in one press, including after Hide. With the walkthrough off, "Help" opens contextual help; an error uses "Need help with this error?" |
+| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring with a 4 px pad and translucent halo, plus a cursor with a short action label. The label avoids nearby text and controls, tries both sides below and above, and is omitted if none fits. The pointer glides with `transform` only. With reduced motion, Show me numbers the targets instead, without overlapping markers |
 | Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
-| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. On `/` and `/local`, the Ready screen shows `#ready-quest` in the rail column with the badges earned and the page's next steps; the guide fills it and keeps it hidden while the guide is off. The route pages show the finish, the badges and the next steps in the dock. A tip whose control reloads the page uses `done: "manual"`, so the finish can still show |
+| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. A press stays pending until the page is idle and no new failure was reported. A filled field must have a nonblank value accepted by browser validation. On `/` and `/local`, Ready shows `#ready-quest` in the rail with earned badges and next steps while the guide is on; route pages show them in the dock. A control that reloads the page uses `done: "manual"` |
 | Toggle | `#guide-toggle`, `[data-guide-toggle]` | `aria-pressed` says whether the guide is on; the kit draws the pressed state |
 
 Contextual help uses the existing dock, mascot and pointer. Its native
-**Help topic** select lists the visible chapter's tips and bundled FAQ.
-**Current step** prioritizes the bounded account state and operation state,
-then the existing step tip. Identity, permission, ownership, first-use
-acknowledgment, usage limits, busy and preview reasons stay distinct. An
-inline **Help with Check the server** button remains keyboard reachable
-beside the account status while that action is unavailable. Help controls
-remain usable during operation locks; protected page controls stay locked.
+**Help topic** select groups visible tips under **This step**, bundled FAQ
+under **Questions**, and definitions reused from tips under **Words**.
+**Current step** prioritizes the current error, then bounded account and
+operation state, then the step tip. Identity, permission, ownership, first-use
+acknowledgment, usage limits, busy and preview reasons stay distinct. Field
+advice requires a named or visibly marked field; a bare HTTP 400 is insufficient.
+The inline **Help with Check the server** button remains keyboard reachable
+beside an unavailable account action. Help controls remain usable during
+operation locks; protected page controls stay locked.
+
+The dock follows the visible tip for the control that has focus. One polite
+`role="status"` region outside the dock announces changes even when the dock
+is folded; a focus-driven change announces only the tip title. A second skip
+link after the page's own skip link reads **Skip to setup guide**, or **Skip to
+help** with the walkthrough off, and reaches the visible dock or chip.
+
+Pages publish bounded `data-guide-state` values for outcomes a press cannot
+prove. Claude sign-in uses `unchecked`, `waiting` and `ready`; the one-time
+key uses `fresh` only while a newly issued key is shown. Content reads these
+through target selectors and `visible:` conditions. No page calls a guide
+completion API. Runtime and approval states distinguish log inspection from
+expired approval; retaining a Claude login also retains any account lock.
+
+Manual read marks and earned chapter badges are saved per page in the tab's
+`sessionStorage`, under `relmio-guide-progress:<page>`. Only known content ids
+are restored. Press marks and field values are never restored as guide progress.
 
 **About this help** shows schema/revision, source version, review date and
 source guides from `guide/context.js`. Each guide content module uses that
@@ -380,29 +406,43 @@ Placement:
   content, or at a corner of the panel. On narrow windows it is a sheet at the
   bottom of the window, above the panel footer or under the top bar.
 - Until the person opens it from the chip, presses Start the guide, Back or
-  Next tip, or moves focus into it, the dock also keeps the tip's target, the
-  page and step titles and the quest track clear. When nothing fits, it
-  collapses to the chip and the pointer still marks the target. An opened dock
-  covers the target, titles or track before any safety content.
-- An opened dock always shows. When no spot fits its full height, it is cut
+  Next tip, or moves focus into it, the dock also keeps the tip's target, page
+  and step titles, quest track, and the step panel's working controls clear.
+  Working controls include inputs, selects, textareas, buttons, links,
+  summaries, field and choice labels, and commands. Before folding, it tries
+  a clear rail-column stretch at least 200 px tall, shortening only its body.
+  If none fits, the chip carries the tip title and the pointer still marks
+  the target. An opened dock gives up the target, titles and track first,
+  then working controls, then safety content. Error help protects the named
+  or marked field and keeps working controls clear even when opened from its chip.
+- An opened walkthrough dock always shows. When no spot fits its full height, it is cut
   to the window below the top bar: in the rail column or at a panel corner on
   wide windows, and as a sheet or a half-width card on narrow ones. Its body
   scrolls, and its head and actions stay in view. It takes a stretch of at
   least 160 px that keeps the protected items clear. Only when a tiny window
-  has no such stretch does it cover the fewest of them, instead of collapsing.
-- The chip stays inside the window. It keeps the protected items clear before
-  safety content and titles, and moves to the left edge when the right edge
-  has no clear spot.
+  has no such stretch does it cover the fewest of them. Error help is the
+  exception: it folds if no spot keeps working controls clear.
+- The chip stays inside the window. It tries clear rail-column gaps and keeps
+  working controls and protected items clear before safety content and titles.
+  It moves to the left edge when the right edge has no clear spot.
 - The pointer hides while its target is scrolled out of view, including out
-  of a scrolling panel body. Its action label never covers a checkbox or radio
-  label or a disclosure summary. A checkbox or radio is pointed at from its
-  left edge, and the label is left out when neither side is clear.
+  of a scrolling panel body. Its action label avoids nearby hint, value,
+  paragraph, code and label line boxes, as well as controls and summaries.
+  A checkbox or radio is pointed at from its left edge. The label tries the
+  other side, then above the target, before being left out.
 - Check placement at the five one-screen sizes plus 390 x 844, 320 x 640 and
   short windows such as 1280 x 320 and 568 x 320, in the default and error
   states.
-- Game feel stays quiet: a badge chip, a checked progress dot and one hop of
-  the mascot. No points, confetti, emoji or exclamation marks. Decorative
-  motion stops within 5 seconds.
+- The dock and chip move instantly and fade in at a new spot with
+  `--rm-duration-fast`; scrolling and resizing do not repeatedly restart
+  the fade. A newly completed dot draws its check once with opacity and
+  scale using `--rm-duration`. An install-only press followed by Ready gets
+  one `happy` mascot hop using `--rm-duration-slow`, including on the chip.
+  Reloading a management view does not count as an install. Reduced motion
+  makes these state changes instant.
+- Game feel stays quiet: badge chips, checked progress dots and a mascot hop.
+  No points, confetti, emoji or exclamation marks. Decorative motion stops
+  within 5 seconds.
 
 ## Plan and usage panel
 
@@ -527,6 +567,13 @@ characters per line. Use sentence case for headings, buttons and labels.
   position.
 - `prefers-reduced-motion: reduce` stops spinners, pulses and slides; the kit
   provides static fallbacks.
+- New content fades in with opacity only: a shown panel body, the body of an
+  opened disclosure, notice or menu, an alert, and any block with
+  `rm-fade-in`. A copy button settles from `scale(0.96)`. A progress bar and a
+  finished step's connector move with `scaleX`.
+- A theme change may run inside `document.startViewTransition`; the kit times
+  the root crossfade. The reduced-motion reset does not reach view-transition
+  pseudo-elements, so the kit turns their animation off by name.
 - The home illustration may loop. It needs a visible pause control, pauses
   offscreen, and shows a complete still scene for reduced motion or missing
   SVG animation support. Owner decision, 2026-10-03: the Doorway keeps

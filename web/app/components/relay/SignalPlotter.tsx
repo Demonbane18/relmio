@@ -1,13 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  AnimatePresence,
-  motion,
-  MotionConfig,
-  useReducedMotion,
-} from "motion/react";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import site from "../../site.module.css";
 import { classNames } from "../ui/classNames";
 import { Icon, type IconName } from "../ui/Icon";
@@ -38,6 +32,19 @@ const routeDefinitions = [
     link: "/docs/local-endpoints#supergrok-development-backends",
     linkLabel: "Read the SuperGrok guide",
     note: "Official OAuth stays inside the Grok runtime, and setup never requires or reads a ChatGPT credential.",
+    tone: "Experimental",
+  },
+  {
+    id: "claude",
+    label: "Claude for n8n",
+    icon: "message",
+    source: "Your self-hosted n8n, for your own personal use only",
+    credential: "Sign in to official Claude Code in your own terminal",
+    transport: "A private adapter protected by a Relmio access key",
+    destination: "Text replies from your own Claude plan through Claude Code",
+    link: "/docs/claude-subscription",
+    linkLabel: "Read the Claude guide",
+    note: "The VPS route and Hosting options are available from any wizard. The companion on this computer and the relmio claude commands require macOS or Linux. The VPS Claude page is untested on Windows.",
     tone: "Experimental",
   },
   {
@@ -95,39 +102,25 @@ const routeDefinitions = [
 ] as const satisfies ReadonlyArray<Record<string, string> & { icon: IconName }>;
 
 type RouteId = (typeof routeDefinitions)[number]["id"];
-const relayEase = [0.22, 1, 0.36, 1] as const;
 
 // Route map geometry (viewBox 0 0 520 304): one rail per route on the left
 // joins the doorway at y = 152, then one rail runs on to the destination.
-const sourceY = (index: number) => 27 + index * 50;
+const sourceY = (index: number) => 27 + index * (250 / (routeDefinitions.length - 1));
 const routePath = (y: number) => `M 12 ${y} H 132 C 174 ${y} 156 152 210 152 H 268`;
 
-/** "How it works": six real toggle buttons, a map of the selected route
+/** "How it works": route buttons, a map of the selected route
     through the Relmio doorway, and its path from source to destination in
     words. With reduced motion the map and path appear complete at once. */
 export function SignalPlotter({ className }: { className?: string }) {
   const [activeRouteId, setActiveRouteId] = useState<RouteId>("n8n-chatgpt-bridge");
-  const reduceMotion = useReducedMotion();
   const activeIndex = Math.max(
     0,
     routeDefinitions.findIndex((route) => route.id === activeRouteId),
   );
   const activeRoute = routeDefinitions[activeIndex];
   const activeY = sourceY(activeIndex);
-  const detailMotion = reduceMotion
-    ? {
-        initial: { opacity: 1, y: 0 },
-        animate: { opacity: 1, y: 0, transition: { duration: 0 } },
-        exit: { opacity: 1, y: 0, transition: { duration: 0 } },
-      }
-    : {
-        initial: { opacity: 0, y: 6 },
-        animate: { opacity: 1, y: 0, transition: { duration: 0.22, ease: relayEase } },
-        exit: { opacity: 0, y: -6, transition: { duration: 0.14, ease: relayEase } },
-      };
 
   return (
-    <MotionConfig reducedMotion="user">
       <section className={className} id="how-it-works" aria-labelledby="plotter-title">
         <div className="rm-container">
           <header className={classNames(styles.intro, site.reveal)}>
@@ -139,7 +132,7 @@ export function SignalPlotter({ className }: { className?: string }) {
           </header>
 
           <div className={classNames("rm-card", styles.plotter, site.reveal)}>
-            <nav className={styles.routeControls} aria-label="Setup options">
+            <div className={styles.routeControls} role="group" aria-label="Setup options">
               {routeDefinitions.map((route) => (
                 <button
                   aria-controls="relay-route-detail"
@@ -152,10 +145,15 @@ export function SignalPlotter({ className }: { className?: string }) {
                   <span className={`rm-choice__icon ${styles.routeIcon}`}>
                     <Icon name={route.icon} size="sm" />
                   </span>
-                  <span className={styles.routeLabel}>{route.label}</span>
+                  <span className={styles.routeLabel}>
+                    {route.label}
+                    {route.tone === "Experimental" && (
+                      <span className="rm-badge rm-badge--accent">Experimental</span>
+                    )}
+                  </span>
                 </button>
               ))}
-            </nav>
+            </div>
 
             <figure className={styles.routeMap} aria-hidden="true">
               <svg className={styles.routeSvg} viewBox="0 0 520 304" preserveAspectRatio="xMidYMid meet">
@@ -164,17 +162,11 @@ export function SignalPlotter({ className }: { className?: string }) {
                   <path className={styles.rail} d={routePath(sourceY(index))} key={route.id} />
                 ))}
                 <path className={styles.rail} d="M 268 152 H 500" />
-                <AnimatePresence initial={false}>
-                  <motion.path
-                    animate={{ opacity: 1 }}
-                    className={styles.activeRail}
-                    d={`${routePath(activeY)} M 268 152 H 500`}
-                    exit={{ opacity: 0 }}
-                    initial={{ opacity: 0 }}
-                    key={activeRoute.id}
-                    transition={{ duration: reduceMotion ? 0 : 0.22 }}
-                  />
-                </AnimatePresence>
+                <path
+                  className={styles.activeRail}
+                  d={`${routePath(activeY)} M 268 152 H 500`}
+                  key={activeRoute.id}
+                />
                 {routeDefinitions.map((route, index) => (
                   <circle
                     className={route.id === activeRoute.id ? styles.sourceActive : styles.source}
@@ -184,21 +176,11 @@ export function SignalPlotter({ className }: { className?: string }) {
                     r="6"
                   />
                 ))}
-                <motion.circle
-                  animate={
-                    reduceMotion
-                      ? { x: 500, y: 152, opacity: 1 }
-                      : {
-                          x: [12, 132, 210, 268, 390, 500],
-                          y: [activeY, activeY, 152, 152, 152, 152],
-                          opacity: [0, 1, 1, 1, 1, 0],
-                        }
-                  }
+                <circle
                   className={styles.packet}
-                  initial={{ x: 12, y: activeY, opacity: 0 }}
                   key={`packet-${activeRoute.id}`}
                   r="7"
-                  transition={reduceMotion ? { duration: 0 } : { duration: 0.9, ease: relayEase }}
+                  style={{ "--route-source-y": `${activeY}px` } as CSSProperties}
                 />
                 {/* The Relmio doorway and mascot, from the home scene artwork. */}
                 <g transform="translate(260 97) scale(.5)">
@@ -222,15 +204,7 @@ export function SignalPlotter({ className }: { className?: string }) {
             </figure>
 
             <div className={styles.detailRegion} id="relay-route-detail" aria-live="polite">
-              <AnimatePresence initial={false} mode="wait">
-                <motion.article
-                  animate="animate"
-                  className={styles.routeDetail}
-                  exit="exit"
-                  initial="initial"
-                  key={activeRoute.id}
-                  variants={detailMotion}
-                >
+                <article className={styles.routeDetail} key={activeRoute.id}>
                   <div className={styles.detailHeader}>
                     <h3 className={styles.detailTitle}>{activeRoute.label}</h3>
                     <span
@@ -267,12 +241,15 @@ export function SignalPlotter({ className }: { className?: string }) {
                     {activeRoute.linkLabel}
                     <Icon name="arrow-right" size="xs" />
                   </Link>
-                </motion.article>
-              </AnimatePresence>
+                </article>
             </div>
+            <p className={classNames(styles.claudeNotice, "rm-small", "rm-muted")}>
+              Claude is experimental. Not affiliated with or endorsed by Anthropic.
+              For your own personal use only. Permission for this use remains unresolved.{" "}
+              {activeRoute.id !== "claude" && <Link className="rm-link" href="/docs/claude-subscription">Read the Claude guide</Link>}
+            </p>
           </div>
         </div>
       </section>
-    </MotionConfig>
   );
 }

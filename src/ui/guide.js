@@ -47,13 +47,19 @@ export function visitOutcome(seen, isDone, { last = false, current = -1 } = {}) 
 const own = (table, key) => (typeof key === "string" && table && Object.hasOwn(table, key) ? table[key] : null);
 
 // Error flags, then codes, recovery (unless none), HTTP status, then the fallback.
+// Request advice ("check the marked box") needs a field: the server reports
+// every unclassified failure as a 400 request error, so without a named or
+// marked field that advice would blame a box that is fine.
 export function lookupError(errors, error) {
   if (!errors || !error) return null;
   for (const flag of ERROR_FLAGS) if (error[flag] === true && own(errors.codes, flag)) return errors.codes[flag];
   for (const key of [error.code, error.errorCode, error.stoppedReason]) {
     if (own(errors.codes, key)) return errors.codes[key];
   }
+  const field = error.marked === true || (typeof error.param === "string" && error.param.trim() !== "");
+  if (error.recovery === "fix-request" && !field) return errors.fallback ?? null;
   if (error.recovery !== "none" && own(errors.recovery, error.recovery)) return errors.recovery[error.recovery];
+  if (error.status === 400 && !field) return errors.fallback ?? null;
   return own(errors.status, error.status == null ? null : String(error.status)) ?? errors.fallback ?? null;
 }
 
@@ -104,7 +110,7 @@ function boot(page) {
   try { stored = sessionStorage.getItem(KEY); } catch {}
   let dock; let dockLoad; let contentLoad; let errorsLoad; let applied = false;
   const host = {
-    page, toggles, content: undefined, failure: null,
+    page, toggles, content: undefined, failure: null, failureCount: 0,
     pref: stored === "on" || stored === "off" ? stored : null,
     choose(value) {
       void api({ guide: value });
@@ -154,7 +160,10 @@ function boot(page) {
   globalThis.relmioGuide = Object.freeze({
     help() { void mount().then(() => dock?.openHelp()); },
     error(error) {
+      host.failureCount++;
       const info = errorInfo(error);
+      // Pages mark a rejected field before they report the failure.
+      if ([...document.querySelectorAll("[aria-invalid='true']")].some(isShown)) info.marked = true;
       const record = host.failure = { info, surfaces: [...document.querySelectorAll("[role='alert']")].filter(isShown), entry: null };
       errorsLoad ??= import("/guide/errors.js").then((module) => module.GUIDE_ERRORS ?? null, () => null);
       void Promise.all([errorsLoad, mount()]).then(([errors]) => {

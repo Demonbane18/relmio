@@ -378,6 +378,19 @@ test("stale-looking lock is preserved and failed listener startup releases only 
   await app.close();
 });
 
+test("companion mode preserves an existing account claim without starting a second gateway", async (t) => {
+  const f = await fixture(t);
+  f.config.companionHost = "relmio-claude";
+  await f.save();
+  await mkdir(f.accountRoot, { mode: 0o700 });
+  const path = join(f.accountRoot, ".relmio-claude.lock");
+  const claim = '{"pid":1,"startedAt":"2026-11-05T03:02:51.040Z"}\n';
+  await writeFile(path, claim, { mode: 0o600 });
+  await assert.rejects(runClaudeChat(f.options), { code: "account_locked" });
+  assert.equal(await readFile(path, "utf8"), claim);
+  assert.equal(f.captured.length, 0);
+});
+
 test("lost account claim blocks spawning and preserves replacement claim on close", async (t) => {
   const f = await fixture(t);
   const app = await runClaudeChat(f.options);

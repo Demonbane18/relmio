@@ -126,8 +126,8 @@ test("counts are formatted numbers, never percentages, and the bars are decorati
   assert.equal(bars.length, 8);
   assert.ok(view.nodes.filter((node) => node.className.includes("usage-panel__bar"))
     .every((track) => track.attributes.get("aria-hidden") === "true"));
-  assert.equal(bars[0].style.values.get("--rm-progress"), "100%");
-  assert.equal(bars[1].style.values.get("--rm-progress"), "2%", "a model without tokens keeps a visible stub");
+  assert.equal(bars[0].style.values.get("--rm-progress"), "1", "the kit scales the bar by a ratio, not a percent");
+  assert.equal(bars[1].style.values.get("--rm-progress"), "0.02", "a model without tokens keeps a visible stub");
 
   const top = view.nodes.find((node) => node.tag === "ul");
   assert.equal(top.children.length, 3, "the busiest models stay visible");

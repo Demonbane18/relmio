@@ -249,6 +249,15 @@
   .star:nth-child(odd) {
     animation-delay: 0.6s;
   }
+
+  /* The install arrow leans forward on hover and keyboard focus. */
+  .ctaArrow {
+    transition: transform var(--rm-duration-fast) var(--rm-ease);
+  }
+
+  .cta:is(:hover, :focus-visible) .ctaArrow {
+    transform: translateX(3px);
+  }
 }
 
 @keyframes hero-rise {

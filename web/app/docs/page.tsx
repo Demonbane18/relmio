@@ -3,7 +3,7 @@ import { DocumentationPage } from "./DocumentPage";
 
 export const metadata = pageMetadata(
   "Relmio documentation",
-  "Relmio guides for local endpoints, n8n on a VPS, SuperGrok, local models, AI Assistant tools and the experimental Claude subscription adapter, plus security, troubleshooting and a command reference.",
+  "Relmio setup guides for local endpoints, n8n on a VPS, SuperGrok, local models, the AI Assistant and the experimental Claude adapter, plus troubleshooting.",
   "/docs",
 );
 

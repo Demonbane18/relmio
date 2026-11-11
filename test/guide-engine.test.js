@@ -97,21 +97,33 @@ test("a badge needs every action tip seen done; the guide finishes on the last c
 test("error help looks up flags, codes, recovery, status, then the fallback", () => {
   const entry = (title) => ({ title, say: title, steps: [title] });
   const errors = {
-    codes: { retryBlocked: entry("flag"), NO_RUNNING_N8N: entry("code"), usage_limit: entry("stop"), CACHE_FULL: entry("local") },
-    recovery: { reauthorize: entry("recovery"), none: entry("never") },
-    status: { 401: entry("status") },
+    codes: { retryBlocked: entry("flag"), vps_operation_lock: entry("code"), usage_limit: entry("stop"), CACHE_FULL: entry("local") },
+    recovery: { reauthorize: entry("recovery"), none: entry("never"), "fix-request": entry("request") },
+    status: { 400: entry("bad request"), 401: entry("status") },
     fallback: entry("fallback"),
   };
   const title = (error) => lookupError(errors, error)?.title;
-  assert.equal(title({ code: "NO_RUNNING_N8N", retryBlocked: true, recovery: "reauthorize", status: 401 }), "flag");
-  assert.equal(title({ code: "NO_RUNNING_N8N", recovery: "reauthorize", status: 401 }), "code");
+  assert.equal(title({ code: "vps_operation_lock", retryBlocked: true, recovery: "reauthorize", status: 401 }), "flag");
+  assert.equal(title({ code: "vps_operation_lock", recovery: "reauthorize", status: 401 }), "code");
   assert.equal(title({ errorCode: "CACHE_FULL", status: 500 }), "local");
   assert.equal(title({ stoppedReason: "usage_limit" }), "stop");
   assert.equal(title({ code: "unknown", recovery: "reauthorize", status: 401 }), "recovery");
   assert.equal(title({ recovery: "none", status: 401 }), "status", "recovery none is skipped");
   assert.equal(title({ retryBlocked: "yes", status: 503 }), "fallback", "flags count only when true");
   assert.equal(title({ code: "constructor", recovery: "toString" }), "fallback", "inherited keys never match");
-  assert.equal(lookupError(null, { code: "NO_RUNNING_N8N" }), null);
+  assert.equal(lookupError(null, { code: "vps_operation_lock" }), null);
+
+  // The server reports every unclassified failure as a 400 request error, so
+  // the advice about a marked box needs a field the error names or the page marked.
+  assert.equal(title({ recovery: "fix-request", status: 400 }), "fallback", "no field, no field advice");
+  assert.equal(title({ recovery: "fix-request", status: 400, param: "  " }), "fallback", "an empty field name is not a field");
+  assert.equal(title({ recovery: "fix-request", status: 400, param: "host" }), "request");
+  assert.equal(title({ recovery: "fix-request", status: 400, marked: true }), "request");
+  assert.equal(title({ status: 400, marked: true }), "bad request");
+  assert.equal(title({ status: 400 }), "fallback");
+  assert.equal(title({ status: 400, recovery: "none" }), "fallback");
+  assert.equal(title({ status: 400, recovery: "reauthorize" }), "recovery", "another recovery still applies");
+  assert.equal(title({ status: 400, code: "vps_operation_lock" }), "code", "a code still wins");
 });
 
 test("error help points at the page's fix target, else the named field", () => {
@@ -185,6 +197,53 @@ test("on wide windows the dock takes the free rail foot or a panel corner and ke
   assert.equal(placeDock(short, { ...sets, aim: short }, [], true), corner, "opened from the chip, it may cover it");
   assert.equal(placeDock(short, { ...sets, safety: short }, []), null, "safety everywhere folds into the chip");
   assert.ok(placeDock(short, { ...sets, safety: short }, [], true), "opened from the chip, it may cover safety last");
+
+  // The step's working controls: never covered until the person opens the dock.
+  const other = short.find((spot) => spot.left === view.panel.left + 16);
+  assert.equal(placeDock(short, { ...sets, work: [corner] }, []), other, "a field under one corner sends it to the other");
+  assert.equal(placeDock(short, { ...sets, work: short }, []), null, "controls under every spot fold it into the chip");
+  assert.equal(placeDock(short, { ...sets, work: short }, [], true), corner, "opened from the chip, it may cover them");
+  assert.equal(placeDock(short, { ...sets, work: [corner], lead: [other] }, [], true), other,
+    "opened, it covers a title before a working control");
+  assert.equal(placeDock(short, { ...sets, work: [corner], safety: [...sets.safety, other] }, [], true), corner,
+    "and a working control before safety");
+});
+
+test("error-help working controls remain clear even in the opened dock's last resort", () => {
+  const field = box(16, 160, 300, 40);
+  const occupied = box(8, 64, 374, 248);
+  const clear = box(8, 220, 374, 160);
+  const sets = { hard: [], safety: [], lead: [], aim: [], work: [field], fixed: [field] };
+  assert.equal(placeDock([occupied], sets, [], true, [occupied]), null, "a cramped error dock folds instead of covering a field");
+  assert.equal(placeDock([occupied], sets, [], true, [clear]), clear, "a clear bounded spot still opens");
+});
+
+test("a dock nobody opened shrinks into a clear stretch of the rail column before it folds", () => {
+  // 1280 x 720: the rail column holds an intro on top and notes at its foot,
+  // and controls fill the panel, so no full-height spot is clear.
+  const view = { vw: 1280, vh: 720, wide: true, top: 64, rail: box(32, 72, 272, 620), railEnd: 692,
+    panel: box(336, 72, 912, 620), columnBottom: 692, footerTop: 632, headerBottom: 180, bottom: 632 };
+  const tall = () => 320;
+  const list = candidates(view, tall);
+  const intro = box(32, 72, 272, 150);
+  const sets = { hard: [], safety: [intro, box(32, 520, 272, 172)], lead: [], aim: [], work: [box(336, 180, 912, 440)] };
+  const keep = [...sets.safety, ...sets.work];
+  assert.equal(placeDock(list, sets, []), null, "without the stretch it would fold");
+  const column = boundedSpots({ ...view, panel: null }, tall, keep, 200);
+  assert.ok(column.every((spot) => spot.left === 32 && spot.width === 272), "only the rail column is offered");
+  const spot = placeDock(list, sets, [], false, column);
+  assert.deepEqual(spot, box(32, 222, 272, 298), "cut to the stretch between the intro and the notes");
+  assert.equal(keep.some((rect) => overlaps(spot, rect)), false);
+
+  // A stretch shorter than the least height is not worth a cut dock.
+  const crowded = { ...sets, safety: [intro, box(32, 400, 272, 292)] };
+  assert.equal(placeDock(list, crowded, [], false,
+    boundedSpots({ ...view, panel: null }, tall, [...crowded.safety, ...crowded.work], 200)), null);
+
+  // A stretch that holds the whole dock gives it uncut.
+  const roomy = { ...sets, safety: [intro] };
+  const whole = placeDock([], roomy, [], false, boundedSpots({ ...view, panel: null }, tall, [...roomy.safety, ...roomy.work], 200));
+  assert.equal(whole.height, 320);
 });
 
 test("on phones the dock keeps the target, titles, track and warnings clear until the person opens it", () => {
@@ -210,16 +269,20 @@ test("on phones the dock keeps the target, titles, track and warnings clear unti
   const random = (max) => { seed = (seed * 48271) % 2147483647; return seed % max; };
   const rects = () => Array.from({ length: random(3) }, () => box(random(1200), random(700), 20 + random(300), 20 + random(200)));
   for (let round = 0; round < 500; round++) {
-    const sets = { hard: rects(), safety: rects(), lead: rects(), aim: rects() };
+    const sets = { hard: rects(), safety: rects(), lead: rects(), aim: rects(), work: rects() };
     const options = Array.from({ length: 1 + random(6) }, () => box(random(1100), random(600), 100 + random(300), 80 + random(300)));
+    const view = { vw: 1400, vh: 900, wide: true, top: 64, rail: box(32, 72, 272, 700) };
+    const keep = [...sets.hard, ...sets.safety, ...sets.lead, ...sets.aim, ...sets.work];
     for (const opened of [false, true]) {
-      const chosen = placeDock(options, sets, [], opened);
+      // Unopened, the spare spots are the rail column's clear stretches.
+      const spare = opened ? [] : boundedSpots(view, () => 300, keep, 200);
+      const chosen = placeDock(options, sets, [], opened, spare);
       if (!chosen) {
         if (opened) assert.ok(options.every((option) => sets.hard.some((rect) => overlaps(option, rect))));
         continue;
       }
       assert.ok(!sets.hard.some((rect) => overlaps(chosen, rect)));
-      if (!opened) assert.ok(![...sets.safety, ...sets.lead, ...sets.aim].some((rect) => overlaps(chosen, rect)));
+      if (!opened) assert.ok(!keep.some((rect) => overlaps(chosen, rect)), "nothing it keeps clear is covered, working controls included");
     }
   }
 });
@@ -273,25 +336,131 @@ test("an opened dock that fits no full-height spot takes one cut to the window i
   }
 });
 
-test("the chip stays inside the window and never covers a kept control while a spot is clear", () => {
+test("the chip stays inside the window and takes the nearest slot that keeps the most clear", () => {
   // 1280 x 320 with a scrolled page: the rail column's foot is below the window.
   const view = { vw: 1280, vh: 320, wide: true, top: 64, rail: box(32, 72, 272, 560), columnBottom: 972, bottom: 320 };
   const none = { hard: [], safety: [], lead: [] };
   assert.deepEqual(chipSpot(view, 93, 44, none, []), box(1171, 260, 93, 44), "the window's foot, not the rail's");
-  // Kept controls at both right-hand spots: the left edge takes it.
+  // Kept controls at both right-hand corners: it stays on that edge, between them.
   const kept = [box(1100, 50, 170, 70), box(1100, 240, 170, 70)];
-  assert.deepEqual(chipSpot(view, 93, 44, { ...none, hard: kept }, []), box(32, 260, 93, 44));
-  // Safety or a title gives way before a kept control.
+  assert.deepEqual(chipSpot(view, 93, 44, { ...none, hard: kept }, []), box(1171, 192, 93, 44));
+  // Kept controls down the whole right edge: the left edge takes it.
+  assert.deepEqual(chipSpot(view, 93, 44, { ...none, hard: [box(1100, 50, 170, 270)] }, []), box(32, 260, 93, 44));
+  // A slot that covers neither safety nor a kept control comes before one that covers either.
   const everywhere = [box(0, 240, 1280, 80)];
   const keptTop = [box(1100, 50, 170, 70), box(0, 50, 400, 70)];
-  assert.deepEqual(chipSpot(view, 93, 44, { hard: keptTop, safety: everywhere, lead: [] }, []), box(1171, 260, 93, 44));
-  // Nothing clear: it covers the least.
-  const spot = chipSpot(view, 93, 44, { ...none, hard: [box(0, 0, 1280, 120), box(0, 250, 1240, 70)] }, []);
-  assert.deepEqual(spot, box(1171, 260, 93, 44));
+  assert.deepEqual(chipSpot(view, 93, 44, { hard: keptTop, safety: everywhere, lead: [] }, []), box(1171, 192, 93, 44));
+  // Safety gives way before a working control, and a working control before a kept one.
+  const band = [box(0, 124, 1280, 112)];
+  assert.deepEqual(chipSpot(view, 93, 44, { hard: keptTop, safety: band, lead: [], work: everywhere }, []), box(1171, 192, 93, 44));
+  assert.deepEqual(chipSpot(view, 93, 44, { hard: [...keptTop, ...band], safety: [], lead: [], work: everywhere }, []),
+    box(1171, 260, 93, 44));
+  // Nothing clear anywhere: it covers the least, at its usual place.
+  assert.deepEqual(chipSpot(view, 93, 44, { ...none, hard: [box(0, 0, 1280, 320)] }, []), box(1171, 260, 93, 44));
+  // On a wide window the rail column's foot is its usual place; a clear stretch of that column comes before the far edge.
+  const wide = { vw: 1280, vh: 720, wide: true, top: 64, rail: box(28, 72, 272, 620), columnBottom: 692, bottom: 632 };
+  assert.deepEqual(chipSpot(wide, 216, 44, none, []), box(28, 648, 216, 44));
+  const notes = [box(28, 72, 272, 180), box(28, 420, 272, 272)];
+  assert.deepEqual(chipSpot(wide, 216, 44, { ...none, safety: notes }, []), box(28, 372, 216, 44),
+    "the foot of the stretch between the rail's notes, 4 px clear of them");
   // A panel footer scrolled above the top bar never puts the chip behind it.
   const scrolled = { vw: 390, vh: 844, wide: false, top: 64, bottom: 40 };
   const chip = chipSpot(scrolled, 93, 44, none, []);
   assert.ok(chip.top >= scrolled.top && chip.bottom <= scrolled.vh, "inside the window under the top bar");
+});
+
+test("the folded chip never covers a link, a button or a heading while any edge slot is clear of them", () => {
+  // /local settings on a 390 x 844 phone with classic scrollbars: the chip used
+  // to sit under the top bar, on "Back to dashboard" and the page title.
+  const view = { vw: 375, vh: 844, wide: false, top: 64, bottom: 772 };
+  const back = box(4, 61, 177, 32);
+  const title = box(16, 98, 343, 28);
+  const step = box(33, 228, 309, 26);
+  const summary = box(33, 262, 309, 50);
+  const change = box(260, 330, 77, 32);
+  const heading = box(33, 480, 309, 22);
+  const container = box(33, 568, 309, 44);
+  const network = box(33, 678, 309, 44);
+  const footer = [box(33, 796, 90, 40), box(194, 796, 148, 40)];
+  const taps = [back, title, step, summary, change, heading, container, network, ...footer];
+  const fields = [box(33, 545, 309, 105), box(33, 655, 309, 100)];
+  const track = box(44, 135, 286, 36);
+  const callout = { ...box(33, 372, 309, 102), weight: 1 };
+  const sets = { hard: footer, safety: [], lead: [title, step, track], aim: [], work: [summary, ...fields], taps };
+  const clear = (spot, rects) => !rects.some((rect) => overlaps(spot, rect));
+  const inside = (spot) => spot.top >= view.top && spot.bottom <= view.vh && spot.left >= 0 && spot.right <= view.vw;
+
+  const spot = chipSpot(view, 216, 44, sets, [callout]);
+  assert.ok(inside(spot));
+  assert.ok(clear(spot, taps), "no link, button, field control or heading is under it");
+  assert.ok(clear(spot, [...sets.work, track]), "nor a field or the quest track");
+  assert.deepEqual(spot, box(151, 432, 216, 44), "the free slot nearest its usual place, over plain text only");
+
+  // With the callout gone that slot is empty, so it is taken before any text is covered.
+  assert.deepEqual(chipSpot(view, 216, 44, sets, []), box(151, 432, 216, 44));
+  // A button in that stretch: the slot above it, between the Change button and the new one.
+  const extra = box(200, 440, 120, 32);
+  const moved = chipSpot(view, 216, 44, { ...sets, taps: [...taps, extra] }, [callout]);
+  assert.ok(inside(moved) && clear(moved, [...taps, extra]));
+  // No slot keeps the fields clear: it covers a field's hint before any control or heading.
+  const dense = { ...sets, work: [summary, box(33, 320, 309, 440)] };
+  const hint = chipSpot(view, 216, 44, dense, [callout]);
+  assert.ok(inside(hint) && clear(hint, taps), "controls and headings stay clear when only label and hint text is left");
+
+  // 320 x 640 with a short title: the corner under the top bar touched the Back button by 4 px.
+  const small = { vw: 305, vh: 640, wide: false, top: 64, bottom: 568 };
+  const short = chipSpot(small, 120, 44, { hard: [], safety: [], lead: [], taps: [back, box(16, 98, 273, 28), box(33, 500, 239, 44)] }, []);
+  assert.ok(clear(short, [back]) && short.top >= small.top && short.bottom <= small.vh);
+
+  // Random phone layouts: whenever some edge slot is clear of every tap, the chip is too.
+  let seed = 23;
+  const random = (max) => { seed = (seed * 48271) % 2147483647; return seed % max; };
+  for (let round = 0; round < 400; round++) {
+    const phone = { vw: 305 + random(120), vh: 560 + random(320), wide: false, top: 64 };
+    phone.bottom = phone.vh - random(90);
+    const width = 90 + random(200);
+    const buttons = Array.from({ length: 2 + random(9) }, () => box(random(phone.vw - 40), 40 + random(phone.vh - 60), 40 + random(280), 24 + random(40)));
+    const text = Array.from({ length: random(5) }, () => ({ ...box(random(200), 64 + random(phone.vh - 100), 100 + random(250), 20 + random(120)), weight: 1 }));
+    const chosen = chipSpot(phone, width, 44, { hard: buttons.slice(0, 1), safety: [], lead: [], work: [], taps: buttons }, text);
+    assert.ok(chosen.top >= phone.top && chosen.bottom <= phone.vh && chosen.left >= 0 && chosen.right <= phone.vw, "inside the window");
+    // Any 44 px band on either edge that no tap reaches (4 px clear) means the chip must be clear of taps.
+    const free = [8, phone.vw - 8 - width].some((left) => {
+      for (let top = phone.top; top + 44 <= phone.vh - 8; top++) {
+        const band = box(left, top - 4, width, 52);
+        if (!buttons.some((rect) => overlaps(band, rect))) return true;
+      }
+      return false;
+    });
+    if (free) assert.ok(clear(chosen, buttons), `round ${round}: a clear edge slot existed`);
+  }
+});
+
+test("with no slot clear of them, the chip covers a heading before a link or a button and stays under the top bar", () => {
+  // 320 x 640: rows of buttons leave no 44 px gap on either edge, apart from
+  // the band of a two-line heading.
+  const view = { vw: 320, vh: 640, wide: false, top: 64, bottom: 640 };
+  const row = (top, bottom, left = 0, right = 320) => box(left, top, right - left, bottom - top);
+  const buttons = [row(60, 110), row(130, 180), row(200, 250), row(350, 400), row(420, 470), row(490, 540), row(560, 640)];
+  const heading = row(262, 338, 16, 304);
+  const sets = { hard: [], safety: [], lead: [], taps: buttons, headings: [heading] };
+  const inside = (spot) => spot.top >= view.top && spot.bottom <= view.vh && spot.left >= 0 && spot.right <= view.vw;
+  const clear = (spot, rects) => !rects.some((rect) => overlaps(spot, rect));
+  const spot = chipSpot(view, 120, 44, sets, []);
+  assert.deepEqual(spot, box(192, 302, 120, 44), "over the heading, on its usual edge");
+  assert.ok(inside(spot) && clear(spot, buttons));
+  // A button at the heading's right end: the left edge still keeps every button clear.
+  const end = row(280, 320, 250, 310);
+  assert.deepEqual(chipSpot(view, 120, 44, { ...sets, taps: [...buttons, end] }, []), box(8, 302, 120, 44));
+  // A gap clear of buttons and headings alike comes first, even farther from its usual place.
+  const gap = buttons.filter((rect) => rect.top !== 130);
+  assert.deepEqual(chipSpot(view, 120, 44, { ...sets, taps: gap }, []), box(192, 152, 120, 44), "the gap, not the heading");
+
+  // A button under every slot: it covers as little of them as it can, but never the footer's actions.
+  const footer = row(616, 640);
+  const rows = [row(60, 110), row(130, 180), row(200, 250), row(270, 320), row(340, 390), row(410, 460), row(480, 530), row(540, 600)];
+  const least = chipSpot(view, 120, 44, { hard: [footer], safety: [], lead: [], taps: [...rows, footer] }, []);
+  assert.deepEqual(least, box(192, 568, 120, 44), "part of one button, not a whole one and not the footer");
+  assert.ok(inside(least) && clear(least, [footer]));
 });
 
 test("a target clipped by a scrolled panel body counts as off screen", () => {
@@ -305,20 +474,36 @@ test("a target clipped by a scrolled panel body counts as off screen", () => {
   assert.equal(visiblePart(box(400, 300, 0, 0), [view]), null, "an empty box shows nothing");
 });
 
-test("the cursor label never covers a choice's text or a summary", () => {
+test("the cursor label never covers a choice's text, a summary or the text beside its target", () => {
   const view = { vw: 1280, vh: 720 };
   const size = { arrow: 20, width: 64, height: 20, top: 16 };
   const checkbox = box(360, 400, 18, 18);
   assert.deepEqual(cursorSpot(checkbox, size, view, [box(386, 400, 500, 44)], true),
-    { x: 364, y: 412, flip: true, label: true }, "a checkbox is pointed at from its left edge");
-  assert.deepEqual(cursorSpot(box(24, 400, 18, 18), size, { vw: 390, vh: 844 }, [box(50, 400, 320, 44)], true),
-    { x: 28, y: 412, flip: true, label: false }, "no room on either side leaves the label out");
+    { x: 364, y: 412, flip: true, raise: false, label: true }, "a checkbox is pointed at from its left edge");
+  const phone = { vw: 390, vh: 844 };
+  const text = box(50, 400, 320, 44);
+  assert.deepEqual(cursorSpot(box(24, 400, 18, 18), size, phone, [text], true),
+    { x: 28, y: 406, flip: false, raise: true, label: true }, "no room under it on either side: the label goes above");
+  assert.deepEqual(cursorSpot(box(24, 400, 18, 18), size, phone, [text, box(50, 356, 320, 40)], true),
+    { x: 28, y: 412, flip: true, raise: false, label: false }, "no clear side leaves the label out");
 
   const button = box(600, 300, 160, 40);
-  assert.deepEqual(cursorSpot(button, size, view, []), { x: 748, y: 334, flip: false, label: true });
-  assert.deepEqual(cursorSpot(button, size, view, [box(740, 346, 120, 28)]), { x: 748, y: 334, flip: true, label: true },
-    "a summary under the corner sends the label to the other side");
+  assert.deepEqual(cursorSpot(button, size, view, []), { x: 748, y: 334, flip: false, raise: false, label: true });
+  assert.deepEqual(cursorSpot(button, size, view, [box(740, 346, 120, 28)]),
+    { x: 748, y: 334, flip: true, raise: false, label: true }, "a summary under the corner sends the label to the other side");
   assert.equal(cursorSpot(box(1180, 300, 90, 40), size, view, []).flip, true, "the window edge flips it as before");
+
+  // A full-width field at 1280: the window edge sends the label left, where the hint is.
+  const field = box(360, 300, 880, 40);
+  const name = box(360, 274, 110, 20);
+  assert.deepEqual(cursorSpot(field, size, view, [name, box(360, 346, 300, 18)]),
+    { x: 1228, y: 334, flip: true, raise: false, label: true }, "a short hint leaves room under the field's right end");
+  assert.deepEqual(cursorSpot(field, size, view, [name, box(360, 346, 880, 18)]),
+    { x: 1228, y: 306, flip: true, raise: true, label: true }, "a hint as wide as the field sends the label above it");
+  assert.deepEqual(cursorSpot(field, size, view, [box(360, 262, 880, 30), box(360, 346, 880, 18)]),
+    { x: 1228, y: 334, flip: false, raise: false, label: false }, "text on every side leaves the label out");
+  assert.equal(cursorSpot(box(600, 70, 160, 40), size, { ...view, top: 64 }, [box(500, 110, 400, 40)]).label, false,
+    "raised, the label still stays under the top bar");
 });
 
 test("reduced-motion markers never overlap", () => {
