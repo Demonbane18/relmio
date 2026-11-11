@@ -227,7 +227,7 @@ function copyStackSnapshot(snapshot) {
     snapshot.endpoints?.n8nLocal !== snapshot.localUrl ||
     snapshot.endpoints?.ngrokPublic !== snapshot.ngrokPublicUrl ||
     snapshot.components?.ngrok !== (snapshot.publicAccess === "ngrok") ||
-    (snapshot.publicAccess === "none" && (snapshot.ngrokPublicUrl !== null || snapshot.endpoints?.ngrokInspector !== null))
+    (snapshot.publicAccess === "none" && snapshot.ngrokPublicUrl !== null)
   ) throw new TypeError();
   const publicUrl = snapshot.publicAccess === "ngrok"
     ? validatePublicNgrokUrl(snapshot.ngrokPublicUrl) : null;
@@ -242,8 +242,6 @@ function copyStackSnapshot(snapshot) {
     endpoints: {
       n8nLocal: snapshot.localUrl,
       ngrokPublic: publicUrl,
-      ngrokInspector: snapshot.publicAccess === "ngrok"
-        ? validateLoopbackEndpoint(snapshot.endpoints.ngrokInspector, { target: "codex-chat" }) : null,
     },
     components: copyBooleanRecord(snapshot.components, [
       "n8n", "ngrok", "codeSandbox", "searxng",

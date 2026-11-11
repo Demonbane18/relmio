@@ -7,6 +7,15 @@ export const VPS_OPERATION_LOCKS = Object.freeze({
   oauth: `${INSTALL_ROOT}/.openai-oauth-operation.lock`,
 });
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+
+// The pinned build inputs exist for these CPUs only. A CPU Docker did not report is never refused.
+const SUPPORTED_CPUS = new Set(["x86_64", "aarch64"]);
+export function requireSupportedVpsCpu(host, product) {
+  if (typeof host?.arch === "string" && !SUPPORTED_CPUS.has(host.arch)) {
+    throw Object.assign(new Error(`${product} needs a 64-bit Intel or AMD (x86_64) or ARM (aarch64) server. This server reports another CPU type, so the install would fail. Nothing was changed.`),
+      { code: "vps_host_unsupported_cpu" });
+  }
+}
 const identityPattern = /^\d+:\d+$/u;
 function validate(lock, identity) {
   if (!Object.values(VPS_OPERATION_LOCKS).includes(lock) ||
@@ -24,6 +33,8 @@ function lockGuard(lock, identity) {
   return `${rootGuard} && [ ! -L ${lock} ] && [ -d ${lock} ] && [ "$(stat -c %u:%a ${lock})" = 0:700 ] && [ "$(stat -c '%d:%i' ${lock})" = ${quote(identity)} ] && ${noMount(lock)}`;
 }
 
+// Sign-in polls and cancels take this lock without a final confirmation, so taking or resuming
+// a lock never changes the shared folder's mode. Confirmed writes do that themselves.
 export function createVpsLockCommand(lock) {
   validate(lock);
   return `${rootGuard} && umask 077 && mkdir ${lock} && [ "$(stat -c %u:%a ${lock})" = 0:700 ] && ${noMount(lock)} && stat -c '%d:%i' ${lock}`;

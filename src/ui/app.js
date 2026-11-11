@@ -1,5 +1,5 @@
 import { accountUiState, createSiwcControls, createSiwcRecovery, normalizeSiwcAccount, prepareSiwcBrowser, siwcErrorFromResponse, siwcErrorText } from "./siwc-controls.js";
-import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindWizardNavigation, flashCopied, readWizardSession, whenVisible } from "./session.js";
 import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "./ssh-form.js";
 import { initWizardTopbar } from "./topbar.js";
 
@@ -66,7 +66,11 @@ const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
 let sshIdentityDecision = 0;
 const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: handleVpsConnectionInput, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
-const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
+const hostReport = () => ({
+  flow: isAssistantIntegration() ? "assistant" : "chatgpt",
+  container: element("container-select").value, network: element("network-select").value,
+});
+const sshSession = createCredentialSshGuard({ token, hostReport, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   clearEndedVpsConnectionState();
   showStep(2);
@@ -223,16 +227,6 @@ function invalidateReviewedPlan() {
   element("vps-migration-consent").checked = false;
   element("vps-replacement-consent").checked = false;
   element("install-button").disabled = true;
-}
-
-const revertTimers = new WeakMap();
-
-// Shows a check on the button for a moment. The accessible name never changes;
-// the result is announced through the polite status message.
-function flashCopied(button) {
-  button.classList.add("copied");
-  window.clearTimeout(revertTimers.get(button));
-  revertTimers.set(button, window.setTimeout(() => button.classList.remove("copied"), 1800));
 }
 
 async function copyText(value) {
@@ -445,6 +439,7 @@ async function recoverPendingOAuthAttempt() {
               "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
           );
           error.oauthRetryBlocked = true;
+          error.retryBlocked = true;
           throw error;
         }
         if (result.status !== "pending") {
@@ -1158,6 +1153,11 @@ function renderIntegrationReview(plan) {
   element("review-intro").textContent = assistant
     ? "Only the Assistant companion changes. Nothing is written until you approve."
     : "Only the reviewed Relmio sidecar changes. Nothing is written until you approve.";
+  // Plain sentences from the server about this plan, such as an n8n that already runs its own sandbox.
+  const warnings = (Array.isArray(plan.warnings) ? plan.warnings : [])
+    .filter((text) => typeof text === "string" && text && text.length <= 240);
+  replaceReviewItems("review-warnings-list", warnings);
+  element("review-warnings").hidden = warnings.length === 0;
   if (plan.resumeRequired) element("review-intro").textContent =
     `Resume owned installation ${plan.staging.installId.slice(0, 12)} from ${plan.staging.stage}. Existing files stay in place; a completed transfer rotates the one-time key.`;
   element("review-destination-row").hidden = assistant;
@@ -1355,6 +1355,7 @@ function renderNetworks(result) {
     result.networks.map((network) => ({ value: network, label: network })),
     result.recommended,
   );
+  sshSession.refreshHostReport();
 }
 
 async function discover() {
@@ -1363,7 +1364,9 @@ async function discover() {
     body: {},
   });
   if (discovery.containers.length === 0) {
-    throw new Error("No running official n8n container was found.");
+    // The server says what it looked for when it has that sentence.
+    throw new Error(typeof discovery.noneFoundMessage === "string" && discovery.noneFoundMessage.length <= 240
+      ? discovery.noneFoundMessage : "No running official n8n container was found.");
   }
   const networks = await loadNetworks(discovery.containers[0].name);
   return { discovery, networks };
@@ -1371,8 +1374,6 @@ async function discover() {
 
 function renderDiscovery({ discovery, networks }) {
   state.discovery = discovery;
-  element("docker-version").textContent = discovery.dockerVersion;
-  element("compose-version").textContent = discovery.composeVersion;
   fillSelect(
     element("container-select"),
     discovery.containers.map((container) => ({
@@ -1800,6 +1801,7 @@ async function reviewPlan(button) {
 element("network-select").addEventListener("change", () => {
   invalidateReviewedPlan();
   resetVpsOwner();
+  sshSession.refreshHostReport();
   setMessage("Network changed. Review a fresh plan before installing.");
 });
 
@@ -1974,6 +1976,7 @@ for (const input of document.querySelectorAll('input[name="vps-integration"]')) 
     invalidateReviewedPlan();
     state.integrationKind = event.currentTarget.value;
     renderIntegrationManagement();
+    sshSession.refreshHostReport();
   });
 }
 
@@ -1998,6 +2001,7 @@ element("refresh-vps-chatgpt").addEventListener("click", () => {
   state.integrationKind = "sidecar";
   element("manage-vps-sidecar").checked = true;
   renderIntegrationManagement();
+  sshSession.refreshHostReport();
   state.loginIntent = { purpose: "sign-in" };
   element("login-button").click();
 });
@@ -2265,8 +2269,9 @@ function renderVpsOwnerImages(images, visible = true, surface = "owner") {
 
 function scheduleVpsOwnerImagesPoll(generation, delay = 5_000) {
   window.clearTimeout(state.vpsImagesTimer);
+  // A hidden tab waits and checks once when it is shown again.
   state.vpsImagesTimer = generation === state.vpsImagesGeneration
-    ? window.setTimeout(() => { void pollVpsOwnerImages(generation); }, delay)
+    ? window.setTimeout(() => whenVisible(() => void pollVpsOwnerImages(generation)), delay)
     : null;
 }
 
@@ -2754,6 +2759,7 @@ element("vps-owner-replace").addEventListener("click", () => {
   state.integrationKind = "sidecar";
   element("manage-vps-sidecar").checked = true;
   renderIntegrationManagement();
+  sshSession.refreshHostReport();
   void reviewReplacement(element("review-button"));
 });
 

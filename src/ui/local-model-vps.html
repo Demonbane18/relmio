@@ -81,7 +81,12 @@
             <li class="rm-stepper__item" data-stage-marker="4"><span class="rm-stepper__link"><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Connect n8n</span></span></li>
           </ol>
           <p id="message" class="rm-callout rm-callout--neutral route-status" role="status" aria-live="polite">Check the server identity to begin.</p>
-          <p id="progress" class="rm-callout route-status" role="status" aria-live="polite" hidden></p>
+          <div id="progress" class="rm-callout route-status" hidden>
+            <div class="rm-callout__content route-download">
+              <p id="progress-text" role="status" aria-live="polite"></p>
+              <div id="progress-bar" class="rm-progress rm-progress--indeterminate" role="progressbar" aria-label="Model download" aria-valuemin="0" aria-valuemax="100"><span class="rm-progress__bar" aria-hidden="true"></span></div>
+            </div>
+          </div>
         </aside>
         <div id="route-steps-content" class="rm-split__content route-content" aria-busy="false">
           <section id="connection-panel" class="rm-panel route-panel" aria-labelledby="connection-title" data-current>
@@ -104,13 +109,13 @@
                       </div>
                     </div>
                     <div class="route-target">
-                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
-                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" min="1" max="65535" value="22" required /></label>
-                      <button id="scan" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" inputmode="url" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">Connection port</span><input id="port" class="rm-input" type="number" min="1" max="65535" value="22" required /></label>
+                      <button id="scan" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check this server</button>
                     </div>
                     <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
                     <div class="rm-form-grid route-signin">
-                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required /></label>
+                      <label class="rm-field"><span class="rm-field__label">Sign-in name</span><input id="username" class="rm-input" autocomplete="username" value="root" required /></label>
                       <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
                       <label class="rm-field"><span class="rm-field__label">Server permissions</span><select id="ssh-privilege" class="rm-select"><option value="root">Root account (UID 0)</option><option value="sudo-n">Passwordless sudo -n</option></select></label>
                       <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required /></label>
@@ -118,18 +123,18 @@
                   </div>
                   <div class="route-aside">
                     <p class="rm-small rm-muted">Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
-                    <p class="rm-small rm-muted">Passwordless sudo covers this model only. The OAuth bridge, Assistant and SuperGrok need a root account.</p>
+                    <p class="rm-small rm-muted">Passwordless sudo covers this model only. The other setups need a root account.</p>
                     <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
-                    <details class="rm-disclosure">
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report>
                       <summary>About the server check</summary>
                       <div class="rm-disclosure__body">
                         <p id="hosting-hint" role="status"></p>
                         <p>The check reads Docker Engine, Compose, the local endpoint, the admin account, an existing <code>/docker</code> directory, running official n8n, a private network, memory and disk. Relmio does not install or upgrade Docker or n8n.</p>
                       </div>
                     </details>
-                    <details class="rm-disclosure">
-                      <summary>About SSH agent sign-in</summary>
-                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. Relmio does not read private-key files, ask for passphrases or forward your agent.</p></div>
+                    <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact">
+                      <summary>More details about SSH sign-in</summary>
+                      <div class="rm-disclosure__body"><p>For agent sign-in, load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
                     </details>
                     <p id="ssh-session" class="rm-small route-session" role="status"></p>
                   </div>
@@ -137,8 +142,8 @@
               </div>
               <footer class="rm-panel__footer">
                 <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
-                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
-                <button id="connect" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect from VPS</button>
+                <button id="connect" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
               </footer>
             </form>
           </section>
@@ -175,10 +180,11 @@
                 <label class="rm-field"><span class="rm-field__label">Shared Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">Other containers on this network can reach Ollama's management API, which has no sign-in. Choose a trusted network.</span></label>
                 <label class="rm-field"><span class="rm-field__label">Allowlisted model</span><select id="model" class="rm-select"><option value="qwen3:0.6b">Qwen3 0.6B · 0.523 GB download</option><option value="qwen3:1.7b">Qwen3 1.7B · 1.359 GB download</option><option value="qwen3.5:2b">Qwen3.5 2B · 2.741 GB download</option><option value="qwen3.5:4b">Qwen3.5 4B · 3.390 GB download</option><option value="qwen3.5:9b">Qwen3.5 9B · 6.594 GB download</option></select></label>
               </div>
+              <details class="rm-disclosure rm-disclosure--plain rm-disclosure--compact" data-host-report hidden><summary>Server check</summary><div class="rm-disclosure__body"></div></details>
               <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status" aria-live="polite"></p>
             </div>
             <footer class="rm-panel__footer">
-              <button id="disconnect" class="rm-button rm-button--ghost" type="button">Disconnect</button>
+              <button id="disconnect" class="rm-button rm-button--ghost" type="button">Disconnect from VPS</button>
               <button id="refresh" class="rm-button" type="button"><span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Refresh status</button>
               <div class="rm-cluster rm-push" role="group" aria-label="Model actions">
                 <button id="review-remove" class="rm-button" type="button" hidden>Review removal</button>

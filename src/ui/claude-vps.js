@@ -1,5 +1,6 @@
 import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField } from "./ssh-form.js";
-import { readWizardSession } from "./session.js";
+import { flashCopied, readWizardSession, wizardApiError } from "./session.js";
+import { formatLocalDateTime } from "./time.js";
 import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
@@ -10,11 +11,17 @@ const actionLabels = {
   renew: "Renew Claude approval", "sign-out": "Sign out of Claude", remove: "Remove Claude companion",
 };
 const approvalActions = ["install", "replace", "renew"];
+// What Docker says about a companion that is not simply running.
+const companionTrouble = {
+  stopped: "is stopped", missing: "has no container",
+  restarting: "keeps restarting", unhealthy: "is running but fails its health check",
+};
 const reviewFields = ["officialBinaryReviewed", "effectivePolicyReviewed", "nativeAuthAndBillingReviewed", "policyChangesControlled"];
 const panels = ["ssh-panel", "selection-panel", "approval-panel", "review-panel", "settings-panel"];
 let currentView = "ssh-panel";
 let sshIdentityDecision = 0;
-const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
+const hostReport = () => ({ flow: "claude", container: element("container").value, network: element("network").value });
+const sshSession = createCredentialSshGuard({ token, hostReport, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateBoundaryState();
   element("container").replaceChildren();
   element("network").replaceChildren();
@@ -23,6 +30,26 @@ const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshI
 } });
 
 function setMessage(text) { element("status-message").textContent = text; }
+// The sign-in line, and its state for the guide: unchecked, waiting or ready.
+function showLoginState(text, guideState = "unchecked") {
+  element("login-state").textContent = text;
+  element("login-state").dataset.guideState = guideState;
+}
+// The n8n key field. `fresh` marks a key that was issued just now and is shown once.
+function showClientKey(value, fresh = false) {
+  element("client-key").value = value;
+  if (fresh) element("copy-key").dataset.guideState = "fresh";
+  else delete element("copy-key").dataset.guideState;
+}
+// A date for people, with the exact instant kept in the datetime attribute.
+function dateNode(value) {
+  const text = formatLocalDateTime(value);
+  if (!text) return String(value ?? "");
+  const time = document.createElement("time");
+  time.setAttribute("datetime", value);
+  time.textContent = text;
+  return time;
+}
 function clearError() {
   element("error-message").hidden = true;
   element("error-message").textContent = "";
@@ -61,7 +88,7 @@ function showView(id) {
 
 for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
   document.addEventListener(name, event => {
-    if (!state.busy || event.target?.closest?.(".rm-guide-layer") || (name === "keydown" && event.key === "Tab")) return;
+    if (!state.busy || event.target?.closest?.(".rm-guide-layer, [data-guide-help]") || (name === "keydown" && event.key === "Tab")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
@@ -70,12 +97,13 @@ for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "
 async function perform(label, work) {
   if (state.busy) return;
   state.busy = true;
+  const origin = document.activeElement;
   clearError();
   setMessage(label);
   document.body.dataset.operationBusy = "true";
   element("route-steps-content").setAttribute("aria-busy", "true");
   const snapshots = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")]
-    .filter(control => !control.closest(".rm-guide-layer"))
+    .filter(control => !control.closest(".rm-guide-layer, [data-guide-help]"))
     .map(control => ({ control, disabled: typeof control.disabled === "boolean" ? control.disabled : null, tabIndex: control.getAttribute("tabindex") }));
   for (const { control, disabled } of snapshots) {
     if (disabled !== null) control.disabled = true;
@@ -105,6 +133,10 @@ async function perform(label, work) {
     document.body.dataset.operationBusy = "false";
     element("route-steps-content").setAttribute("aria-busy", "false");
     syncConnectionControls();
+    // Keyboard focus returns to the control that started this, unless an error or a new view took it.
+    if ([document.body, origin].includes(document.activeElement) && origin?.isConnected && !origin.disabled && origin.getClientRects().length) {
+      origin.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -121,7 +153,7 @@ async function api(path, body = {}, method = "POST") {
   } catch { throw new Error("The local wizard server is not reachable. Keep its terminal open, then reopen Relmio."); }
   const result = await response.json().catch(() => null);
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("The wizard returned an unreadable response. Start a fresh setup link.");
-  if (!response.ok) throw new Error(result.error || "The operation could not be completed.");
+  if (!response.ok) throw wizardApiError(result, response.status, "The operation could not be completed.");
   try { await sshSession.after(path, result); }
   catch (error) {
     if (path !== "/api/vps/claude/apply") throw error;
@@ -144,10 +176,10 @@ function invalidateBoundaryState() {
   invalidateReview();
   state.status = null;
   state.action = null;
-  element("client-key").value = "";
+  showClientKey("");
   element("login-command").textContent = "";
   element("models-result").textContent = "";
-  element("login-state").textContent = "Sign-in has not been checked.";
+  showLoginState("Sign-in has not been checked.");
 }
 function syncConnectionControls() {
   const trusted = Boolean(state.fingerprint && element("trust-host").checked);
@@ -166,31 +198,55 @@ function selectOptions(node, values) {
 }
 function renderStatus(next) {
   if (!["absent", "manual", "installed", "invalid"].includes(next.state)) throw new Error("Claude status is unreadable. Refresh status before continuing.");
+  const previousRuntime = state.status?.installation?.container;
   state.status = next;
   const installed = next.state === "installed" && next.installation;
-  element("installation-state").textContent = {
-    absent: "No Claude companion is installed on this VPS.",
-    manual: "A manual Claude companion was found. Replacement keeps its Claude login volume and creates a new n8n key.",
-    installed: "Claude companion found. Check its approval and sign-in before using it.",
-    invalid: "This installation is unrecognized. Relmio will not change it. Inspect it with your server administrator.",
-  }[next.state];
+  const running = installed && installed.container === "running";
+  const trouble = installed && !running ? `The Claude companion ${companionTrouble[installed.container] ?? "is not running"}.` : "";
+  const expired = Boolean(trouble) && installed.approvalExpired === true;
+  const inspect = "Inspect the companion logs before another action. For account_locked, stop every process and container using this account, then follow the account-lock recovery guide.";
+  element("installation-state").textContent = expired
+    ? `${trouble} Its approval also expired. Review Renew approval under Manage companion and login storage. ${inspect}`
+    : trouble
+      ? `${trouble} ${inspect}`
+      : {
+        absent: "No Claude companion is installed on this VPS.",
+        manual: "A manual Claude companion was found. Replacement keeps its Claude login volume and creates a new n8n key.",
+        installed: "Claude companion found. Check its approval and sign-in before using it.",
+        invalid: "This installation is unrecognized. Relmio will not change it. Inspect it with your server administrator.",
+      }[next.state];
+  // Runtime state and approval expiry are facts, not a diagnosis of a restart loop.
+  if (trouble) element("installation-state").dataset.guideState = expired ? "expired" : "not-running";
+  else delete element("installation-state").dataset.guideState;
   element("login-command").textContent = installed ? next.loginCommand : "";
   if (installed) {
-    element("approval-expiry").textContent = `${installed.approvalExpired ? "Approval expired" : "Approval expires"}: ${installed.expiresAt}`;
-    if (installed.container !== "running") element("login-state").textContent = `Companion is ${installed.container}. Review replacement before signing in.`;
+    element("approval-expiry").replaceChildren(`${installed.approvalExpired ? "Approval expired" : "Approval expires"}: `, dateNode(installed.expiresAt));
+    if (trouble) {
+      showLoginState(`${trouble} ${expired ? "Its approval also expired. Review Renew approval. " : ""}${inspect}`);
+    } else if (previousRuntime && previousRuntime !== "running") {
+      showLoginState("Sign-in has not been checked.");
+    }
   } else {
-    element("client-key").value = "";
+    showClientKey("");
     element("models-result").textContent = "";
   }
+  if (installed?.approvalExpired === true) element("approval-expiry").dataset.guideState = "expired";
+  else delete element("approval-expiry").dataset.guideState;
+  for (const link of document.querySelectorAll("[data-runtime-help]")) link.hidden = !trouble;
   element("selection-continue").hidden = !installed;
   for (const button of document.querySelectorAll("[data-action]")) {
     button.hidden = button.dataset.action === "install" ? next.state !== "absent" || !element("network").value
       : button.dataset.action === "replace" ? !["manual", "installed"].includes(next.state) || !element("network").value : !installed;
   }
-  showView(installed ? "settings-panel" : "selection-panel");
+  // One primary action per view: Continue once a companion is installed, the review otherwise.
+  element("selection-replace").classList.toggle("rm-button--primary", !installed);
+  // Keep a just-issued key in view. Other runtime trouble starts at inspection;
+  // expired approval can be reviewed from the companion's settings.
+  showView(installed && (running || expired || element("copy-key").dataset.guideState === "fresh") ? "settings-panel" : "selection-panel");
 }
 async function refreshStatus() {
   invalidateReview();
+  sshSession.refreshHostReport();
   const generation = ++state.generation;
   const next = await api("/api/vps/claude/status", {}, "GET");
   if (generation !== state.generation) return;
@@ -203,6 +259,7 @@ async function loadNetworks() {
   const result = await api("/api/networks", { containerName: element("container").value });
   if (generation !== state.generation) return;
   selectOptions(element("network"), result.networks.map(name => [name, name]));
+  if (result.networks.includes(result.recommended)) element("network").value = result.recommended;
   await refreshStatus();
 }
 async function discover() {
@@ -215,7 +272,9 @@ async function discover() {
     selectOptions(element("container"), []);
     selectOptions(element("network"), []);
     await refreshStatus();
-    setMessage("No running n8n container was found. You can still manage an installed Claude companion.");
+    const explanation = typeof result.noneFoundMessage === "string" && result.noneFoundMessage.length <= 240
+      ? result.noneFoundMessage : "No running n8n container was found.";
+    setMessage(`${explanation} You can still manage an installed Claude companion.`);
     return;
   }
   selectOptions(element("container"), result.containers.map(item => [item.name, `${item.name} · ${item.image}`]));
@@ -288,7 +347,7 @@ async function prepareReview(action) {
   element("review-models").textContent = plan.models.join(", ");
   element("review-version").textContent = `${plan.version} · ${plan.arch}`;
   element("review-sha").textContent = plan.executableSha256;
-  element("review-expiry").textContent = plan.expiresAt ?? "Not renewed by this action";
+  element("review-expiry").replaceChildren(plan.expiresAt ? dateNode(plan.expiresAt) : "Not renewed by this action");
   element("apply-button").textContent = actionLabels[action];
   element("apply-button").classList.toggle("rm-button--danger", action === "remove");
   element("apply-button").classList.toggle("rm-button--primary", action !== "remove");
@@ -318,6 +377,9 @@ element("scan-button").addEventListener("click", () => {
     element("fingerprint").textContent = result.fingerprint;
     element("fingerprint-box").hidden = false;
     setMessage("Compare the fingerprint before authenticating.");
+  }).then(() => {
+    // As on the main setup page, a finished check hands focus to the confirmation.
+    if (state.fingerprint && document.activeElement === element("scan-button")) element("trust-host").focus();
   });
 });
 element("trust-host").addEventListener("change", () => {
@@ -329,6 +391,8 @@ element("ssh-form").addEventListener("submit", event => {
   if (!state.fingerprint || !element("trust-host").checked) return;
   void perform("Connecting and finding n8n…", async () => {
     await api("/api/ssh/connect", sshAuthentication.request(state.fingerprint));
+    // The confirmed identity has been used. Another attempt starts with a fresh check.
+    resetHost();
     await discover();
   });
 });
@@ -352,10 +416,10 @@ element("apply-button").addEventListener("click", () => {
     invalidateReview();
     const result = await api("/api/vps/claude/apply", { planId: reviewed.planId, confirmed: true });
     if (result.clientKey) {
-      element("client-key").value = result.clientKey;
+      showClientKey(result.clientKey, true);
       showView("settings-panel");
     }
-    element("login-state").textContent = "Sign-in has not been checked.";
+    showLoginState("Sign-in has not been checked.");
     element("models-result").textContent = "";
     if (!result.sshIdentityUnverified) await refreshStatus();
     setMessage(result.sshIdentityUnverified
@@ -366,9 +430,9 @@ element("apply-button").addEventListener("click", () => {
 element("auth-button").addEventListener("click", () => void perform("Checking Claude sign-in…", async () => {
   const result = await api("/api/vps/claude/auth-status");
   const signedIn = result.loggedIn === true && result.authMethod === "claude.ai";
-  element("login-state").textContent = signedIn
+  showLoginState(signedIn
     ? `Claude plan sign-in confirmed${result.subscriptionType ? ` (${result.subscriptionType})` : ""}. Check models next.`
-    : "Claude plan sign-in is not ready. Complete sign-in in your own terminal, then check again.";
+    : "Claude plan sign-in is not ready. Complete sign-in in your own terminal, then check again.", signedIn ? "ready" : "waiting");
   setMessage("Sign-in check finished. Model availability is a separate check.");
 }));
 element("models-button").addEventListener("click", () => void perform("Checking approved models…", async () => {
@@ -383,7 +447,7 @@ for (const [id, source, message] of [["copy-key", "client-key", "n8n API key cop
     if (state.busy) return;
     const value = source === "client-key" ? element(source).value : element(source).textContent;
     if (!value) return;
-    try { await navigator.clipboard.writeText(value); setMessage(message); }
+    try { await navigator.clipboard.writeText(value); flashCopied(element(id)); setMessage(message); }
     catch { showError(new Error("Clipboard access was refused. Select and copy the value manually.")); }
   });
 }
@@ -391,7 +455,9 @@ element("disconnect-button").addEventListener("click", () => void perform("Disco
   await api("/api/disconnect"); resetHost(); showView("ssh-panel");
   setMessage("Disconnected. Your installed companion remains on the VPS.");
 }));
-window.addEventListener("pagehide", () => { element("client-key").value = ""; });
+// A key typed in by hand is a saved key, not the one issued just now.
+element("client-key").addEventListener("input", () => { delete element("copy-key").dataset.guideState; });
+window.addEventListener("pagehide", () => { showClientKey(""); });
 element("settings-back").addEventListener("click", () => { if (!state.busy) showView("selection-panel"); });
 element("selection-continue").addEventListener("click", () => { if (!state.busy && state.status?.state === "installed") showView("settings-panel"); });
 initWizardTopbar({ session: token, isBusy: () => state.busy, loadProjectMeta: () => api("/api/local/project-meta", {}, "GET") });

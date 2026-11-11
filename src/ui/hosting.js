@@ -1,5 +1,5 @@
 import { createHostingArchive } from "./hosting-archive.js";
-import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindWizardNavigation, readWizardSession, wizardApiError } from "./session.js";
 import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
@@ -17,6 +17,8 @@ const KIND_LABELS = Object.freeze({
   "manual-platform": "Container platforms", "external-only": "External services",
 });
 const MODE_LABELS = Object.freeze({ managed: "Managed", manual: "Manual", external: "External", unavailable: "None" });
+// Managed server components that only a direct root sign-in can set up.
+const ROOT_ONLY_COMPONENTS = Object.freeze(["openai", "assistant", "searxng", "supergrok", "claude"]);
 const FILE_NAME = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*|\.dockerignore)(?:\/(?:[A-Za-z0-9][A-Za-z0-9._-]*|\.dockerignore))*$/u;
 const state = { providers: [], profiles: [], models: [], generation: 0, plan: null, archive: null, requestPending: false };
 
@@ -46,11 +48,14 @@ function node(tag, text, className) {
   return item;
 }
 
-function error(message) {
+// Takes a sentence or a failed request's error. The guide gets the error
+// itself, so its help can use the status and code.
+function error(failure) {
+  const message = typeof failure === "string" ? failure : failure.message;
   el("hosting-error").textContent = message;
   el("hosting-error").hidden = false;
   el("hosting-error").focus();
-  globalThis.relmioGuide?.error?.({ message });
+  globalThis.relmioGuide?.error?.(typeof failure === "string" ? { message } : failure);
 }
 
 function clearError() {
@@ -106,6 +111,19 @@ function modeBadge(mode) {
 
 function experimentalBadge() {
   return node("span", "Experimental", "rm-badge rm-badge--accent");
+}
+
+// A short warning for a managed server component that needs a direct root
+// sign-in on a provider whose documented default account is not root. It only
+// informs: nothing here changes a login, authentication or privilege choice.
+// Keep it short enough to share the first line with the Managed badge: a
+// longer note wraps and makes step 1 scroll at 1280 x 720.
+function rootSignInNote(provider, component) {
+  if (provider?.kind !== "managed-vm" || modeOf(provider, component) !== "managed" ||
+      !ROOT_ONLY_COMPONENTS.includes(component)) return null;
+  if (provider.rootLogin === "off-by-default") return "No root sign-in by default.";
+  if (provider.rootLogin === "operator-chosen") return "Root sign-in may be off.";
+  return null;
 }
 
 // Compact cell: one icon per mode (shapes are explained by #hosting-legend),
@@ -225,7 +243,10 @@ function renderComponent() {
   el("hosting-claude-details").hidden = component !== "claude";
   el("hosting-claude-details").open = false;
   if (capability) {
-    el("hosting-capability").replaceChildren(modeBadge(capability.mode), " ", node("span", capability.note));
+    const rootNote = rootSignInNote(provider, component);
+    el("hosting-capability").replaceChildren(modeBadge(capability.mode), " ",
+      ...(rootNote ? [node("strong", rootNote, "hosting-capability__root"), " "] : []),
+      node("span", capability.note));
   } else {
     el("hosting-capability").textContent = "Choose what to set up to see what's available.";
   }
@@ -433,13 +454,19 @@ el("hosting-form").addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json", "X-Setup-Token": token },
       body: JSON.stringify(request),
     });
-    if (!response.ok) throw new Error("The provider plan was rejected. Check the selected fields and try again.");
-    const plan = await response.json();
+    const plan = await response.json().catch(() => null);
+    if (!response.ok) {
+      const rejected = "The provider plan was rejected. Check the selected fields and try again.";
+      const failure = wizardApiError(plan, response.status, rejected);
+      // This route answers 400 only for rejected fields; say what to do about it.
+      if (response.status === 400) failure.message = rejected;
+      throw failure;
+    }
     if (generation !== state.generation) return;
     renderPlan(plan, request);
     el("hosting-status").textContent = "Plan ready. No server or provider was contacted.";
   } catch (failure) {
-    if (generation === state.generation) error(failure.message);
+    if (generation === state.generation) error(failure);
   } finally {
     if (generation === state.generation) {
       state.requestPending = false;
@@ -455,9 +482,9 @@ async function loadCatalog() {
   }
   try {
     const response = await fetch("/api/hosting/providers", { headers: { "X-Setup-Token": token } });
-    if (!response.ok) throw new Error("The hosting catalog could not be loaded in this session.");
-    const catalog = await response.json();
-    if (!Array.isArray(catalog.providers) || !Array.isArray(catalog.profiles) || !Array.isArray(catalog.models)) {
+    const catalog = await response.json().catch(() => null);
+    if (!response.ok) throw wizardApiError(catalog, response.status);
+    if (!Array.isArray(catalog?.providers) || !Array.isArray(catalog.profiles) || !Array.isArray(catalog.models)) {
       throw new Error("The hosting catalog is unavailable.");
     }
     state.providers = catalog.providers;
@@ -475,9 +502,11 @@ async function loadCatalog() {
     if (state.providers.some((provider) => provider.id === "hostinger")) el("hosting-provider").value = "hostinger";
     renderProvider();
     el("hosting-status").textContent = activeProvider() ? "Choose what to set up." : "Choose hosting and what to set up.";
-  } catch {
+  } catch (failure) {
     el("hosting-status").textContent = "Catalog unavailable; no plan can be generated.";
-    error("The authenticated hosting catalog could not be loaded. Reopen this page from Relmio.");
+    // One plain sentence on screen; the guide still gets the status and code.
+    failure.message = "The authenticated hosting catalog could not be loaded. Reopen this page from Relmio.";
+    error(failure);
   }
 }
 

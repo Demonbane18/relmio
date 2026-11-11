@@ -402,18 +402,20 @@ export async function installAssistant({
     ? createAssistantEnv(secrets, { includeSearxng: installation.includeSearxng })
     : null;
 
-  await runOrThrow(remote, deploymentCommands[0], "AI Assistant shared root creation");
-  await runOrThrow(remote, deploymentCommands[1], "AI Assistant directory creation");
-  await remote.upload(ASSISTANT_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT, 0o600);
+  // Both folders are proved root-owned and not group or other writable before the first file.
+  // Each file is then staged and renamed into place, so a link is never followed.
+  await runOrThrow(remote, deploymentCommands[0], "AI Assistant shared folder ownership check");
+  await runOrThrow(remote, deploymentCommands[1], "AI Assistant folder ownership check");
+  await remote.publishManagedFile(ASSISTANT_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT, 0o600);
   if (!enablingSearxng) {
-    await remote.upload(ASSISTANT_MARKER_PATH, serializeAssistantMarker(installation), 0o600);
+    await remote.publishManagedFile(ASSISTANT_MARKER_PATH, serializeAssistantMarker(installation), 0o600);
   }
-  await remote.upload(ASSISTANT_ROOT + "/docker-compose.yml", composeFile, 0o644);
+  await remote.publishManagedFile(ASSISTANT_ROOT + "/docker-compose.yml", composeFile, 0o644);
   if (settingsFile) {
-    await remote.upload(ASSISTANT_ROOT + "/searxng-settings.yml", settingsFile, 0o644);
+    await remote.publishManagedFile(ASSISTANT_ROOT + "/searxng-settings.yml", settingsFile, 0o644);
   }
   if (envFile) {
-    await remote.upload(ASSISTANT_ROOT + "/.env", envFile, 0o600);
+    await remote.publishManagedFile(ASSISTANT_ROOT + "/.env", envFile, 0o600);
   }
   await runOrThrow(remote, deploymentCommands[2], "AI Assistant private file permissions");
   await runOrThrow(remote, deploymentCommands[3], "AI Assistant public file permissions");
@@ -502,7 +504,7 @@ export async function installAssistant({
 
   if (enablingSearxng) {
     try {
-      await remote.upload(ASSISTANT_MARKER_PATH, serializeAssistantMarker(installation), 0o600);
+      await remote.publishManagedFile(ASSISTANT_MARKER_PATH, serializeAssistantMarker(installation), 0o600);
       await runOrThrow(remote, deploymentCommands[2], "AI Assistant private file permissions");
       await runOrThrow(remote, deploymentCommands[4], "AI Assistant private file mode verification");
     } catch {

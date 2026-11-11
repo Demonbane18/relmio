@@ -108,3 +108,42 @@ export function bindWizardNavigation(
     browserWindow.location.reload();
   });
 }
+
+// The failure a wizard API reported, with the fields error help reads. `recovery`
+// is left out on purpose: that table is ChatGPT sign-in advice.
+export function wizardApiError(result, status, fallback = "The operation could not be completed.") {
+  const error = new Error(typeof result?.error === "string" && result.error ? result.error : fallback);
+  error.status = status;
+  for (const key of ["code", "param"]) {
+    if (typeof result?.[key] === "string" && result[key] && result[key].length <= 128) error[key] = result[key];
+  }
+  for (const flag of ["remoteOutcomeUnknown", "retryBlocked"]) {
+    if (result?.[flag] === true) error[flag] = true;
+  }
+  return error;
+}
+
+const copiedTimers = new WeakMap();
+
+// Copy feedback: marks the button with data-copied for a moment, and the kit
+// shows a check. The accessible name never changes; the caller announces the
+// copy through its polite status line.
+export function flashCopied(button) {
+  button.toggleAttribute("data-copied", true);
+  clearTimeout(copiedTimers.get(button));
+  copiedTimers.set(button, setTimeout(() => button.removeAttribute("data-copied"), 1_800));
+}
+
+// Runs a poll tick now, or once when the tab is shown again if it is hidden,
+// so a background tab sends no requests.
+export function whenVisible(tick, page = document) {
+  if (!page.hidden) {
+    tick();
+    return;
+  }
+  page.addEventListener("visibilitychange", function shown() {
+    if (page.hidden) return;
+    page.removeEventListener("visibilitychange", shown);
+    tick();
+  });
+}

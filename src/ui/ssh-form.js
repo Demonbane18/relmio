@@ -1,10 +1,112 @@
+import { wizardApiError } from "./session.js";
+
 const element = (id) => document.getElementById(id);
 
 async function sshRead(token, path) {
   const response = await fetch(path, { headers: { "X-Setup-Token": token }, credentials: "omit", mode: "same-origin", redirect: "error", cache: "no-store" });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "The SSH session could not be inspected.");
+  if (!response.ok) throw wizardApiError(result, response.status, "The SSH session could not be inspected.");
   return result;
+}
+
+const HOST_REPORT_NOTE = "A pass only repeats what Docker reported. It does not prove that a later build will work.";
+// Short names for the checks that can fail, shown in the closed row.
+const HOST_REPORT_CHECKS = { login: "Sign-in", cpu: "CPU", network: "Network" };
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+// The host report as plain text for one flow: a one-line label that counts the
+// warnings and names each failed check, the facts Docker reported, and the rows
+// that warn or fail for that flow, problems first. Rows for other flows and
+// facts the probe did not learn are left out.
+export function describeHostReport(report, flow) {
+  if (!report || typeof report !== "object" || !Array.isArray(report.rows)) return null;
+  const fact = (value) => (typeof value === "string" && value && value.length <= 80 ? value : null);
+  const host = report.host ?? {};
+  const facts = [fact(host.os), fact(host.arch),
+    fact(host.dockerVersion) && `Docker ${host.dockerVersion}`,
+    fact(host.composeVersion) && `Compose ${host.composeVersion}`].filter(Boolean);
+  const rows = report.rows.filter((row) => ["warn", "fail"].includes(row?.level) &&
+    typeof row.text === "string" && row.text && row.text.length <= 240 &&
+    (!Array.isArray(row.flows) || row.flows.length === 0 || row.flows.includes(flow)))
+    .sort((a, b) => Number(b.level === "fail") - Number(a.level === "fail"));
+  const failed = [...new Set(rows.filter(({ level }) => level === "fail")
+    .map(({ id }) => (Object.hasOwn(HOST_REPORT_CHECKS, id) ? HOST_REPORT_CHECKS[id] : "Server")))];
+  const warnings = rows.filter(({ level }) => level === "warn").length;
+  const counts = [failed.length && `${failed.join(" and ")} ${failed.length === 1 ? "problem" : "problems"}`,
+    warnings && plural(warnings, "warning")].filter(Boolean).join(", ");
+  return {
+    label: `Server check: ${counts || "no warnings"}`,
+    facts: `${facts.length ? facts.join(", ") : "Server facts are unavailable"}.`,
+    issues: rows.map(({ level, text }) => ({ level, text })),
+  };
+}
+
+function make(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+// Shows the report in every <details data-host-report> on the page. One that
+// starts hidden is a row of its own. One that starts visible is the step's own
+// disclosure, which keeps its summary and text when there is no report. The
+// summary carries the one-line label and the details go into a bounded region,
+// so a report never opens by itself and costs at most one line while closed.
+const hostReportBoxes = new WeakMap();
+export function renderHostReport(report, flow) {
+  const view = describeHostReport(report, flow);
+  const key = JSON.stringify(view);
+  for (const box of document.querySelectorAll("[data-host-report]")) {
+    let home = hostReportBoxes.get(box);
+    if (!home) {
+      const summary = box.querySelector("summary");
+      home = { summary, label: summary.textContent, own: box.hidden, region: null, key: undefined };
+      hostReportBoxes.set(box, home);
+    }
+    if (home.key === key) continue;
+    home.key = key;
+    home.region?.remove();
+    home.region = null;
+    home.summary.textContent = view ? view.label : home.label;
+    if (home.own) {
+      box.hidden = !view;
+      if (!view) box.open = false;
+    }
+    if (!view) continue;
+    const region = make("div", "rm-disclosure__region");
+    region.setAttribute("role", "region");
+    region.setAttribute("aria-label", "Server check details");
+    region.setAttribute("tabindex", "0");
+    region.append(make("p", "", view.facts));
+    if (view.issues.length) {
+      const list = make("ul", "rm-disclosure__list");
+      list.append(...view.issues.map(({ level, text }) => make("li", "", `${level === "fail" ? "Problem" : "Warning"}: ${text}`)));
+      region.append(list);
+    }
+    region.append(make("p", "", HOST_REPORT_NOTE));
+    box.querySelector(".rm-disclosure__body").prepend(region);
+    home.region = region;
+  }
+}
+
+// Reads the report for the verified connection and shows it for one flow. The
+// server answers from what the connection probe already learned, with no remote
+// call; it adds the network row when the selected n8n container and network are
+// sent. The report only informs, so a failed read hides it instead of raising
+// an error.
+let hostReportRead = 0;
+export async function showHostReport(token, { flow, container, network }) {
+  const read = ++hostReportRead;
+  const query = container && network ? `?${new URLSearchParams({ container, network })}` : "";
+  let report = null;
+  try { report = await sshRead(token, `/api/ssh/host-report${query}`); } catch { /* Shown as no report. */ }
+  if (read === hostReportRead) renderHostReport(report, flow);
+}
+
+export function clearHostReport() {
+  hostReportRead++;
+  renderHostReport(null);
 }
 
 export function sameSshIdentity(left, right) {
@@ -74,7 +176,10 @@ function showReviewIdentity(server, fingerprint) {
   element("ssh-review-identity").textContent = fingerprintField || !server ? server : `${server} · ${fingerprint}`;
 }
 
-export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision = () => {} }) {
+// `hostReport` returns the page's flow and current selection for the host
+// report, as { flow, container, network }. Without it the guard leaves the
+// report alone. Pages call refreshHostReport() after the selection changes.
+export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision = () => {}, hostReport = null }) {
   let adopted = null;
   let initialAdoptionAvailable = true;
   const isRemote = path => ["/api/discover", "/api/networks", "/api/plan", "/api/install"].includes(path) ||
@@ -89,6 +194,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
     element("ssh-session").textContent = `${server} · ${identity.fingerprint}`;
     showReviewIdentity(server, identity.fingerprint);
     element("ssh-disconnect").hidden = false;
+    if (hostReport) void showHostReport(token, hostReport());
   }
   function rejectIdentity(error) {
     initialAdoptionAvailable = false;
@@ -99,6 +205,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
     showReviewIdentity("", "");
     element("ssh-session").textContent = error.message;
     element("ssh-disconnect").hidden = error.message === "Connect to the VPS first.";
+    if (hostReport) clearHostReport();
     throw error;
   }
   async function verify() {
@@ -126,6 +233,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
         onIdentityDecision();
         showReviewIdentity("", "");
         element("ssh-session").textContent = "No authenticated VPS session.";
+        if (hostReport) clearHostReport();
       }
       // A pending image sign-in keeps the verified SSH connection until polling finishes.
       else if (path === "/api/assistant/install" || (path === "/api/install" && result.images?.state !== "pending")) {
@@ -134,6 +242,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
       }
       else if (isRemote(path)) await verify();
     },
+    refreshHostReport() { if (hostReport && adopted) void showHostReport(token, hostReport()); },
   };
 }
 
@@ -159,7 +268,7 @@ export function bindSshAuthentication({ token, trustId, onChange, allowSudo = fa
     try {
       const response = await fetch("/api/disconnect", { method: "POST", headers: { "X-Setup-Token": token, "Content-Type": "application/json" }, body: "{}", credentials: "omit", mode: "same-origin", redirect: "error" });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Disconnect failed.");
+      if (!response.ok) throw wizardApiError(result, response.status, "Disconnect failed.");
       window.location.reload();
     } catch (error) {
       element("ssh-session").textContent = error.message;

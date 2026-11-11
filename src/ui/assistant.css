@@ -248,7 +248,7 @@
 }
 
 .assistant-fields--server {
-  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  grid-template-columns: minmax(0, 1fr) 11rem;
 }
 
 .assistant-field__more {
@@ -302,28 +302,11 @@
   text-align: end;
 }
 
-.assistant-versions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--rm-space-1) var(--rm-space-5);
+/* Plan warnings from the server, one sentence per line. */
+.assistant-warnings {
   margin: 0;
-  font-size: var(--rm-text-sm);
-}
-
-.assistant-versions > div {
-  display: flex;
-  gap: var(--rm-space-2);
-}
-
-.assistant-versions dt {
-  color: var(--rm-ink-muted);
-}
-
-.assistant-versions dd {
-  margin: 0;
-  color: var(--rm-ink);
-  font-family: var(--rm-font-mono);
-  font-weight: 600;
+  padding: 0;
+  list-style: none;
 }
 
 /* instance-ai status: a dot and a sentence. */

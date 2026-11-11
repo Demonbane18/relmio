@@ -335,12 +335,6 @@ body[data-current-step="5"] [data-step-actions="5"] {
   overflow-wrap: anywhere;
 }
 
-.copy-value.copied > .rm-icon {
-  --rm-icon: var(--rm-icon-check);
-
-  color: var(--rm-success);
-}
-
 /* Step 1: choose a route ------------------------------------------------- */
 
 .setup-routes {
@@ -536,6 +530,7 @@ body[data-current-step="5"] [data-step-actions="5"] {
   display: none;
 }
 
+
 /* Step 3: choose n8n ----------------------------------------------------- */
 
 .setup-n8n-fields {
@@ -629,6 +624,13 @@ body[data-current-step="5"] [data-step-actions="5"] {
 
 .setup-list:empty {
   display: none;
+}
+
+/* Plan warnings from the server, one sentence per line. */
+.setup-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .setup-host-key {

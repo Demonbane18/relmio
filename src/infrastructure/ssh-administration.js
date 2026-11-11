@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { INSTALL_ROOT } from "../domain/safety.js";
+import { validateUsername } from "../domain/validation.js";
 
 export const MAX_UPLOAD_BYTES = 1_000_000;
 export const DOCKER_ENDPOINT = "unix:///var/run/docker.sock";
@@ -28,19 +29,24 @@ export const BUILDER_STATE_PROBE = [
   `fallback="$HOME/.docker/buildx/defaults/${DEFAULT_BUILDER_KEY}"; [ ! -L "$fallback" ] || exit 79`,
   'if [ -e "$fallback" ]; then safe_selector "$fallback" && [ "$(stat -c %s "$fallback")" = 7 ] && [ "$(cat "$fallback")" = default ] || exit 79; fi',
 ].join("; ");
-const fail = () => new Error("The VPS requires verified Linux root administration, a safe existing /docker directory, GNU upload tools, and a local rootful Docker Engine with Compose. No remote files were written.");
+// Each refusal reaches the browser as its own sentence with a code. The server
+// replaces any message over 240 characters or with a filtered path, so every
+// text below plus the fixed suffix stays inside that limit.
+const refuse = (code, message) => Object.assign(new Error(`${message} No remote files were written.`), { code });
+const fail = () => refuse("vps_prereq_probe", "The VPS requires verified Linux root administration, a safe existing Docker parent directory, GNU upload tools, and a local rootful Docker Engine with Compose.");
 const prerequisites = Object.freeze({
-  70: "The managed VPS adapter requires Linux host administration, not service-container SSH.",
-  71: "The selected SSH mode did not provide effective UID 0. Root login or noninteractive passwordless sudo is required.",
-  72: "Required Linux file-operation capabilities are unavailable. An administrator must provide GNU dd/stat/find, sha256sum, awk, directory/removal tools, and readable /proc/self/mountinfo before setup.",
-  73: "An administrator must provide an existing root-owned, non-symlink /docker directory without group/world write permission. Relmio will not create or repair it.",
-  74: "A root-owned Docker CLI without group/world write permission is required in the administrative PATH.",
-  75: "The selected Docker context must use unix:///var/run/docker.sock. Remote, custom-socket and rootless contexts are not supported; Relmio will not switch your context.",
-  76: "The local rootful Docker Engine is unavailable or unverified. An administrator must provide the root-owned standard Docker socket and running Engine.",
-  77: "Docker Compose is unavailable in the selected administrative context. An administrator must install or repair the Compose plugin.",
-  78: "Custom Docker/Buildx configuration or builder selectors and disabled BuildKit are unsupported. Remove those selectors before starting this session; Relmio will not switch a remote builder or fall back to the classic builder.",
-  79: "The existing default Docker context and built-in default builder are required. Custom, shadowed or ambiguous saved builder selections are unsupported; Relmio will not switch or initialize them during preparation.",
+  70: ["vps_prereq_linux", "The managed VPS adapter requires Linux host administration, not service-container SSH."],
+  71: ["vps_prereq_uid", "The selected SSH mode did not provide effective UID 0. Root login or noninteractive passwordless sudo is required."],
+  72: ["vps_prereq_tools", "Required Linux file-operation capabilities are unavailable. An administrator must provide GNU dd/stat/find, sha256sum, awk, directory/removal tools, and readable process mount information."],
+  73: ["vps_prereq_docker_dir", "An administrator must provide an existing root-owned, non-symlink Docker parent directory without group/world write permission. Relmio will not create or repair it."],
+  74: ["vps_prereq_docker_cli", "A root-owned Docker CLI without group/world write permission is required in the administrative PATH."],
+  75: ["vps_prereq_docker_context", "The selected Docker context must use Docker's standard local socket. Remote, custom-socket and rootless contexts are not supported; Relmio will not switch your context."],
+  76: ["vps_prereq_docker_engine", "The local rootful Docker Engine is unavailable or unverified. An administrator must provide the root-owned standard Docker socket and running Engine."],
+  77: ["vps_prereq_compose", "Docker Compose is unavailable in the selected administrative context. An administrator must install or repair the Compose plugin."],
+  78: ["vps_prereq_builder_config", "Custom Docker or Buildx configuration, builder selectors and disabled BuildKit are unsupported. Remove those selectors first; Relmio will not switch a remote builder or use the classic builder."],
+  79: ["vps_prereq_default_builder", "The existing default Docker context and built-in default builder are required. Custom, shadowed or ambiguous saved builder selections are unsupported; Relmio will not switch or initialize them."],
 });
+const prerequisite = code => refuse(...prerequisites[code]);
 
 // Every probe is read-only. In particular, do not test dd by creating a file.
 export const ADMIN_PROBE = [
@@ -69,35 +75,93 @@ export const ADMIN_PROBE = [
   "printf 'default\\n'",
 ].join("; ");
 
+// cloud-init answers a root key sign-in with one fixed sentence when the image
+// turns root off. Only that exact sentence, with a name the username validator
+// returns unchanged, is recognised. No other remote text reaches a message.
+const ROOT_REDIRECT = /^Please login as the user "([^"\n]*)" rather than the user "root"\.\n{0,2}$/u;
+function redirectedLogin(stdout) {
+  const name = typeof stdout === "string" ? ROOT_REDIRECT.exec(stdout)?.[1] : undefined;
+  if (name === undefined) return null;
+  try { return validateUsername(name) === name ? name : null; } catch { return null; }
+}
+
 export function parseLoginUid(result) {
+  const redirected = redirectedLogin(result.stdout);
+  if (redirected) {
+    throw refuse("ssh_root_login_disabled", `This server refuses root sign-in and asks for the user "${redirected}" instead. Only the self-hosted model setup can use that account, with passwordless sudo. The other setups need root.`);
+  }
   if (result.code !== 0 || !/^(0|[1-9][0-9]{0,9})\n?$/u.test(result.stdout)) throw fail();
   const uid = Number(result.stdout.trim());
   if (uid > 4294967294) throw fail();
   return uid;
 }
 
+// A leading major.minor.patch is all the check needs. Distribution packages
+// append their own revision, for example 2.40.3+ds1-0ubuntu1~24.04.1.
+const COMPOSE_VERSION = /^v?\d{1,4}\.\d{1,4}\.\d{1,4}(?:[A-Za-z.+~_:-][A-Za-z0-9.+~_:-]{0,63})?$/u;
+
 export function parseAdministrativeProbe(result) {
   if (result.code !== 0) {
-    const message = prerequisites[result.code];
-    if (message) throw new Error(`${message} No remote files were written.`);
-    throw new Error("The selected administrative probe failed. Verify Linux root access or passwordless /usr/bin/sudo -n permission without a TTY. No remote files were written.");
+    if (Object.hasOwn(prerequisites, result.code)) throw prerequisite(result.code);
+    throw refuse("vps_prereq_probe", "The selected administrative probe failed. Verify Linux root access or passwordless sudo -n permission without a TTY.");
   }
   const lines = result.stdout.trimEnd().split("\n");
   if (lines.length !== 7 || lines[0] !== "0" || lines[1] !== DOCKER_ENDPOINT ||
       !/^\/[A-Za-z0-9_./-]+\/docker$/u.test(lines[2]) || lines[2].split("/").includes("..") ||
-      lines[3] !== "default" ||
-      !/^v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/u.test(lines[5])) throw fail();
+      lines[3] !== "default" || !COMPOSE_VERSION.test(lines[5])) throw fail();
   let info;
   try { info = JSON.parse(lines[4]); } catch { throw fail(); }
   if (Array.isArray(info?.SecurityOptions) && info.SecurityOptions.some(option => typeof option === "string" && /rootless|podman/iu.test(option)) ||
       [info?.ServerVersion, info?.OperatingSystem].some(value => typeof value === "string" && /podman/iu.test(value))) {
-    throw new Error("The managed VPS adapter requires a local rootful Docker Engine; rootless Docker and Podman are unsupported. No remote files were written.");
+    throw refuse("vps_prereq_rootless", "The managed VPS adapter requires a local rootful Docker Engine; rootless Docker and Podman are unsupported.");
   }
   if (!info || info.OSType !== "linux" || typeof info.ServerVersion !== "string" ||
       !/^\d+\.\d+\.\d+/u.test(info.ServerVersion) || !Array.isArray(info.SecurityOptions) ||
       info.SecurityOptions.some(option => typeof option !== "string")) throw fail();
-  if (lines[6] !== "default") throw new Error(`${prerequisites[79]} No remote files were written.`);
+  if (lines[6] !== "default") throw prerequisite(79);
   return Object.freeze({ endpoint: DOCKER_ENDPOINT, binary: lines[2], builder: "default" });
+}
+
+const HOST_TEXT = /^[\x20-\x7e]{1,64}$/u;
+const HOST_VERSION = /^\d{1,4}(?:\.\d{1,4}){1,2}(?:[A-Za-z.+~_:-][A-Za-z0-9.+~_:-]{0,63})?$/u;
+const hostText = (value, pattern = HOST_TEXT) => typeof value === "string" && pattern.test(value) ? value : null;
+// A version the probe accepted always yields a value: the whole string when it
+// is plain, otherwise its leading numbers.
+function hostVersion(value) {
+  if (typeof value !== "string") return null;
+  const text = value.replace(/^v/u, "");
+  return HOST_VERSION.test(text) ? text : /^\d{1,6}\.\d{1,6}\.\d{1,6}/u.exec(text)?.[0] ?? null;
+}
+const hostCount = value => Number.isSafeInteger(value) && value > 0 ? value : null;
+
+// Read-only facts from the same probe output that parseAdministrativeProbe
+// attests. They describe the host for warnings and review-time checks; they
+// never widen what the probe accepts. Unknown values are null, including an
+// absent client plugin list; no additional remote probe is needed.
+export function describeAdministrativeHost(result) {
+  const lines = typeof result?.stdout === "string" ? result.stdout.trimEnd().split("\n") : [];
+  let info = null;
+  try { info = JSON.parse(lines[4]); } catch { /* facts stay unknown */ }
+  if (!info || typeof info !== "object") info = {};
+  const plugins = info.ClientInfo?.Plugins;
+  const buildx = Array.isArray(plugins)
+    ? plugins.find(plugin => plugin?.Name === "buildx" && (plugin.Err === undefined || plugin.Err === null)) : undefined;
+  const security = Array.isArray(info.SecurityOptions)
+    ? [...new Set(info.SecurityOptions.map(option =>
+      typeof option === "string" ? /^name=([a-z0-9-]{1,32})(?:,|$)/u.exec(option)?.[1] : undefined)
+      .filter(Boolean))].slice(0, 16)
+    : null;
+  return Object.freeze({
+    os: hostText(info.OperatingSystem),
+    kernel: hostText(info.KernelVersion),
+    arch: hostText(info.Architecture, /^[A-Za-z0-9_]{1,32}$/u),
+    dockerVersion: hostVersion(info.ServerVersion),
+    composeVersion: hostVersion(lines[5]),
+    buildxVersion: hostVersion(buildx?.Version),
+    memoryBytes: hostCount(info.MemTotal),
+    cpus: hostCount(info.NCPU),
+    security: security && Object.freeze(security),
+  });
 }
 
 export function administrativeCommand(command, privilege, engine) {
