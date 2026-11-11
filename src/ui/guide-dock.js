@@ -279,6 +279,8 @@ export function mountGuide(host) {
   const boxes = (nodes) => nodes.filter(visible).map((node) => node.getBoundingClientRect())
     .filter((rect) => rect.width > 1 && rect.height > 1);
   const matches = (node, selector) => { try { return Boolean(node?.closest?.(selector)); } catch { return false; } };
+  // A copy button: a page's copy target or a button with the kit's copy icon.
+  const copyButton = (node) => (node.matches("[data-copy-target]") || node.querySelector(".rm-icon--copy") ? node : null);
   const attr = (node, name, value) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
   const make = (tag, className = "", text = "") => {
     const node = doc.createElement(tag);
@@ -534,10 +536,13 @@ export function mountGuide(host) {
     if (!chapters) return;
     restore();
     // A press counts once the page is idle again and reported no new failure.
+    // A copy button's press counts once the page marks a successful copy with
+    // data-copied, so a copy the browser is still asking about or refused
+    // leaves its tip open.
     let installed = false;
     for (const [key, press] of pending) {
       if ((host.failureCount ?? 0) !== press.failureCount || (host.failure && host.failure !== press.failure)) pending.delete(key);
-      else if (!busy()) {
+      else if (press.copy ? press.copy.hasAttribute("data-copied") : !busy()) {
         marks.add(key);
         pending.delete(key);
         installed ||= press.tip.installs === true;
@@ -1130,7 +1135,7 @@ export function mountGuide(host) {
         if (tip.done !== kind || !matches(event.target, tip.target)) continue;
         const key = `${kind}|${chapter.id}/${tip.id}`;
         // A press waits for its result; a changed choice counts at once.
-        if (kind === "clicked" && !marks.has(key)) pending.set(key, { failure: host.failure, failureCount: host.failureCount ?? 0, tip, chapter });
+        if (kind === "clicked" && !marks.has(key)) pending.set(key, { failure: host.failure, failureCount: host.failureCount ?? 0, tip, chapter, copy: copyButton(event.target.closest(tip.target)) });
         else marks.add(key);
       }
       schedule();

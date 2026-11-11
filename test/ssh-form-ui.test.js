@@ -447,6 +447,15 @@ test("the SSH guard shows the host report closed, for its selection, and clears 
   assert.equal(own.open, true, "a report the person opened stays open when it changes");
   assert.equal(own.body.children.length, 1, "the earlier details are replaced");
 
+  // From here each report read waits until the test answers it, so it can finish after the session ends.
+  const held = [];
+  globalThis.fetch = async path => path.startsWith("/api/ssh/host-report")
+    ? new Promise(resolve => held.push(value => resolve({ ok: true, json: async () => value })))
+    : { ok: true, json: async () => rootSession };
+  const answer = async (index, value) => { held[index](value); await settle(); };
+  const earlier = buildVpsHostReport({ identity: rootSession, host: hostFacts });
+  guard.refreshHostReport();
+
   await guard.after("/api/disconnect", {});
   assert.equal(own.hidden, true);
   assert.equal(own.open, false);
@@ -454,14 +463,26 @@ test("the SSH guard shows the host report closed, for its selection, and clears 
   assert.equal(shared.hidden, false);
   assert.equal(shared.summary.textContent, "About the server check");
   assert.deepEqual(shared.body.children, ["static text"]);
-  // A late answer for the ended session is not shown.
-  await settle();
+  // The read started before the disconnect answers now and is not shown.
+  await answer(0, earlier);
   assert.equal(own.hidden, true);
+  assert.equal(own.body.children.length, 0);
+  assert.equal(shared.summary.textContent, "About the server check");
+  assert.deepEqual(shared.body.children, ["static text"]);
+
+  // A read from an earlier session that answers last never replaces the next session's report.
+  await guard.after("/api/ssh/connect", { identity: rootSession });
+  await answer(1, report);
+  guard.refreshHostReport();
+  await guard.after("/api/disconnect", {});
+  await guard.after("/api/ssh/connect", { identity: rootSession });
+  await answer(3, report);
+  await answer(2, earlier);
+  assert.equal(own.hidden, false);
+  assert.equal(own.summary.textContent, "Server check: 1 warning");
+  assert.equal(own.body.children[0].children[0].textContent, "Ubuntu 24.04.4 LTS, x86_64, Docker 29.5.2, Compose 5.6.1.");
 
   // A report that cannot be read is simply not shown.
-  await guard.after("/api/ssh/connect", { identity: rootSession });
-  await settle();
-  assert.equal(own.hidden, false);
   globalThis.fetch = async path => path.startsWith("/api/ssh/host-report")
     ? { ok: false, status: 400, json: async () => ({ error: "The host report selection is invalid." }) }
     : { ok: true, json: async () => rootSession };

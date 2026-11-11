@@ -70,6 +70,7 @@ const state = {
   dashboardSnapshotStale: true,
   dashboardSelectedTarget: null,
   dashboardBusy: false,
+  dashboardGeneration: 0,
   dashboardStaleTimer: null,
   dashboardFocusIdentity: null,
   dashboardUsage: null,
@@ -77,6 +78,9 @@ const state = {
   installedImages: null,
   imagesGeneration: 0,
   imagesTimer: null,
+  claudeStatusTimer: null,
+  claudeStatusGeneration: 0,
+  claudeStatusChecks: 0,
   installImagesReady: false,
   chatTester: {
     activeController: null,
@@ -2339,13 +2343,18 @@ function renderDashboardFailure() {
 }
 
 async function loadLocalDashboard() {
+  // Opening setup or entering the dashboard again supersedes this check. Its answer is
+  // dropped, so it can neither replace a newer view nor change the setup screen.
+  const generation = state.dashboardGeneration;
   renderDashboardChecking();
   element("dashboard-error").hidden = true;
   element("dashboard-error").textContent = "";
   try {
     const snapshot = normalizeDashboardSnapshot(await api("/api/local/dashboard"));
+    if (generation !== state.dashboardGeneration) return;
     renderDashboardSnapshot(snapshot);
   } catch {
+    if (generation !== state.dashboardGeneration) return;
     renderDashboardFailure();
   }
   showDashboardUsage();
@@ -2756,6 +2765,8 @@ function focusVisibleSetupHeading() {
 }
 
 async function enterSetupView(target = null, { checkDocker = true } = {}) {
+  // A dashboard check that is still running belongs to the view being left.
+  state.dashboardGeneration += 1;
   clearDashboardStaleTimer();
   element("local-dashboard").hidden = true;
   element("local-setup").hidden = false;
@@ -2801,10 +2812,20 @@ async function enterDashboardView({
   preserveFocus = false,
   preserveScroll = false,
 } = {}) {
+  // Each entry supersedes the one before it and its inventory check. Refresh is refused
+  // from here on, so a second press while the discard runs starts nothing.
+  const generation = ++state.dashboardGeneration;
+  if (refresh) state.dashboardBusy = true;
   clearLocalModelPoll();
   element("n8n-local-model-management").hidden = true;
   clearDashboardStaleTimer();
-  await api("/api/local/discard", { method: "POST", body: {} });
+  try {
+    await api("/api/local/discard", { method: "POST", body: {} });
+  } catch (error) {
+    if (generation === state.dashboardGeneration) throw error;
+  }
+  // Setup opened, or the dashboard was entered again, while the discard ran.
+  if (generation !== state.dashboardGeneration) return;
   resetPendingSetupState();
   element("local-setup").hidden = true;
   element("local-dashboard").hidden = false;
@@ -3068,6 +3089,44 @@ function renderClaudeStatus({ runtime, approvalExpired, expiresAt }) {
   element("claude-approval-status").replaceChildren(...(approvalExpired
     ? ["Approval expired ", localTime(expiresAt), ". Renew before use."]
     : ["Approval expires ", localTime(expiresAt), ". Sign-in and model access still need checking."]));
+  watchClaudeStart(runtime);
+}
+
+// Docker's first health check runs a minute after the companion starts, and a companion
+// that keeps failing turns unhealthy at its third failed check, about three minutes in.
+// While the card says starting, Relmio reads the companion again every 30 seconds, at
+// most 7 times, and stops once the card is left or the runtime settles.
+function watchClaudeStart(runtime) {
+  window.clearTimeout(state.claudeStatusTimer);
+  state.claudeStatusTimer = null;
+  state.claudeStatusGeneration += 1;
+  state.claudeStatusChecks = 7;
+  if (runtime === "starting") scheduleClaudeStatusPoll();
+}
+
+function scheduleClaudeStatusPoll(delay = 30_000) {
+  const generation = state.claudeStatusGeneration;
+  const left = () => generation !== state.claudeStatusGeneration ||
+    element("n8n-claude-management").hidden || element("claude-card").hidden;
+  state.claudeStatusTimer = window.setTimeout(async () => {
+    state.claudeStatusTimer = null;
+    if (left()) return;
+    // A hidden tab or a running operation skips its turn; the page ticks once when the tab shows again.
+    if (document.hidden || state.operationBusy) {
+      scheduleClaudeStatusPoll();
+      return;
+    }
+    state.claudeStatusChecks -= 1;
+    let snapshot = null;
+    try {
+      snapshot = normalizeN8nClaudeDashboardSnapshot((await api("/api/local/claude/status")).snapshot);
+    } catch {
+      // An unreadable answer uses up this check; the next one may read the companion.
+    }
+    if (left()) return;
+    if (snapshot && snapshot.runtime !== "starting") renderClaudeStatus(snapshot);
+    else if (state.claudeStatusChecks > 0) scheduleClaudeStatusPoll();
+  }, delay);
 }
 
 function renderClaudeManagement(snapshot) {
@@ -6709,5 +6768,9 @@ document.addEventListener("visibilitychange", () => {
     window.clearTimeout(state.localModelPollTimer);
     state.localModelPollTimer = null;
     scheduleLocalModelPoll(0);
+  }
+  if (state.claudeStatusTimer !== null) {
+    window.clearTimeout(state.claudeStatusTimer);
+    scheduleClaudeStatusPoll(0);
   }
 });

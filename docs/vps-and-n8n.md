@@ -88,8 +88,9 @@ ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
    boundary. **Passwordless sudo -n (model only)** is limited to local-model
    management and common read-only discovery.
 4. Select a running official n8n container and one eligible existing Docker
-   network. Rootful Docker Engine, Compose v2 and Buildx must use the same
-   local daemon in the selected administrative context. If SSH connected but
+   network. Rootful Docker Engine and Compose v2 must use the same local daemon
+   in the selected administrative context. Buildx is expected; without it the
+   review warns and does not refuse. If SSH connected but
    this read-only check fails, fix the problem on the server and choose
    **Retry discovery**. The wizard keeps the verified connection and does not
    ask for the password again. Changing the server details requires a fresh

@@ -93,7 +93,8 @@ silently overwritten. Do not delete an existing installation merely to
 recover a bearer until you have considered its saved Grok session.
 
 The VPS needs existing approved direct-root SSH access, rootful Docker Engine
-with Compose and Buildx targeting that same local daemon,
+with Compose targeting that same local daemon (Buildx is expected; without it
+the review warns and builds are untested),
 standard Linux tools, outbound HTTPS for the pinned image/CLI and
 provider, and an eligible Grok account. An available local SSH agent can supply
 authentication, not sudo authorization. The safe root-owned, non-symlink

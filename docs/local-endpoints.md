@@ -96,7 +96,8 @@ See the [direct OAuth route](supergrok-oauth-route-decision.md) and
   available disk for one allowlisted model. See [Private local models](local-models.md)
   for capacity details and the download/resource review.
 - For the VPS model route, an SSH-reachable Linux host with rootful Docker
-  Engine, Compose v2 and Buildx targeting that same local daemon, plus a safe
+  Engine and Compose v2 targeting that same local daemon (Buildx is expected;
+  without it the review warns and builds are untested), plus a safe
   preexisting root-owned `/docker`. Choose the
   actual SSH username and **Local SSH agent** or approved password. Verified
   **Passwordless sudo -n (model only)** is limited to model management, not
